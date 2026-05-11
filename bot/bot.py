@@ -1,20 +1,31 @@
 """
-bot.py — نقطة الدخول الرئيسية
-• Global Error Handling  • Anti-Crash System  • Auto-Reconnect
-• Webhook (إنتاج) / Polling (تطوير)
+bot.py — نظام تشغيل البوت للعمل 24/7 على Render
+═══════════════════════════════════════════════════
+• HTTP Keep-Alive Server   • Self-Ping كل 10 دقائق
+• Anti-Crash System        • Auto-Reconnect
+• Memory Monitor           • Detailed Logging
+• Global Error Handler     • Graceful Shutdown
 """
 
 import asyncio
+import gc
 import logging
 import os
 import sys
 import time
 import traceback
+from datetime import datetime
 
+from aiohttp import web as aio_web, ClientSession, ClientTimeout
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.enums import ParseMode
+from aiogram.exceptions import (
+    TelegramAPIError,
+    TelegramNetworkError,
+    TelegramRetryAfter,
+)
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import BotCommand, BotCommandScopeChat, BotCommandScopeDefault
 
@@ -26,20 +37,139 @@ from handlers import (
 )
 from security import AntiSpamMiddleware
 
-# ─── مجلد السجلات ────────────────────────────────────────────────────────────
+
+# ══════════════════════════════════════════════════════════════
+#  إعداد السجلات
+# ══════════════════════════════════════════════════════════════
+
 os.makedirs(os.path.join(os.path.dirname(__file__), "logs"), exist_ok=True)
 LOG_FILE = os.path.join(os.path.dirname(__file__), "logs", "bot.log")
 
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s | %(levelname)s | %(name)s — %(message)s",
+    format="%(asctime)s | %(levelname)-8s | %(name)s — %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
     handlers=[
         logging.StreamHandler(sys.stdout),
-        logging.FileHandler(LOG_FILE, encoding="utf-8"),
+        logging.FileHandler(LOG_FILE, encoding="utf-8", mode="a"),
     ],
 )
+# تقليل ضوضاء المكتبات الخارجية
+logging.getLogger("aiogram").setLevel(logging.WARNING)
+logging.getLogger("aiohttp").setLevel(logging.WARNING)
+
 logger = logging.getLogger(__name__)
+
+# ══════════════════════════════════════════════════════════════
+#  حالة عامة
+# ══════════════════════════════════════════════════════════════
+
+BOT_START_TIME   = datetime.now()
+_polling_running = False
+_reconnect_count = 0
+
+
+# ══════════════════════════════════════════════════════════════
+#  HTTP Server — Keep-Alive + Health Endpoints
+# ══════════════════════════════════════════════════════════════
+
+async def _health(request: aio_web.Request) -> aio_web.Response:
+    uptime  = datetime.now() - BOT_START_TIME
+    hours   = int(uptime.total_seconds() // 3600)
+    minutes = int((uptime.total_seconds() % 3600) // 60)
+    return aio_web.json_response({
+        "status":    "ok",
+        "bot":       "بوت الاختراق",
+        "uptime":    f"{hours}h {minutes}m",
+        "polling":   _polling_running,
+        "reconnects": _reconnect_count,
+        "timestamp": datetime.now().isoformat(),
+    })
+
+
+async def _metrics(request: aio_web.Request) -> aio_web.Response:
+    try:
+        import tracemalloc
+        if not tracemalloc.is_tracing():
+            tracemalloc.start()
+        current, peak = tracemalloc.get_traced_memory()
+        mem_info = f"{current/1024/1024:.1f} MB (peak: {peak/1024/1024:.1f} MB)"
+    except Exception:
+        mem_info = "غير متاح"
+
+    return aio_web.json_response({
+        "memory":    mem_info,
+        "polling":   _polling_running,
+        "reconnects": _reconnect_count,
+        "uptime_sec": int((datetime.now() - BOT_START_TIME).total_seconds()),
+    })
+
+
+async def run_web_server(port: int) -> None:
+    app = aio_web.Application()
+    app.router.add_get("/",        _health)
+    app.router.add_get("/healthz", _health)
+    app.router.add_get("/health",  _health)
+    app.router.add_get("/metrics", _metrics)
+
+    runner = aio_web.AppRunner(app)
+    await runner.setup()
+    site = aio_web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+    logger.info("🌐 خادم HTTP يعمل على المنفذ %d", port)
+
+
+# ══════════════════════════════════════════════════════════════
+#  Self-Ping — منع النوم على Render (كل 10 دقائق)
+# ══════════════════════════════════════════════════════════════
+
+async def self_ping_task(port: int) -> None:
+    """يُرسل طلب HTTP لنفسه كل 10 دقائق لمنع Render من إيقاف الخدمة."""
+    await asyncio.sleep(60)  # انتظر دقيقة قبل البدء
+
+    render_url = os.environ.get("RENDER_EXTERNAL_URL", "").rstrip("/")
+    local_url  = f"http://localhost:{port}/healthz"
+    url        = f"{render_url}/healthz" if render_url else local_url
+
+    logger.info("💓 Self-Ping مفعّل → %s", url)
+
+    timeout = ClientTimeout(total=15)
+    while True:
+        await asyncio.sleep(600)  # كل 10 دقائق
+        try:
+            async with ClientSession(timeout=timeout) as session:
+                async with session.get(url) as resp:
+                    if resp.status == 200:
+                        logger.info("💓 Self-Ping ✅ (%s)", url)
+                    else:
+                        logger.warning("💓 Self-Ping ⚠️ status=%d", resp.status)
+        except Exception as e:
+            logger.warning("💓 Self-Ping فشل: %s", e)
+
+
+# ══════════════════════════════════════════════════════════════
+#  Heartbeat — سجل دوري كل 30 دقيقة
+# ══════════════════════════════════════════════════════════════
+
+async def heartbeat_task() -> None:
+    while True:
+        await asyncio.sleep(1800)
+        uptime = datetime.now() - BOT_START_TIME
+        hours  = int(uptime.total_seconds() // 3600)
+        mins   = int((uptime.total_seconds() % 3600) // 60)
+        try:
+            import tracemalloc
+            if not tracemalloc.is_tracing():
+                tracemalloc.start()
+            cur, _ = tracemalloc.get_traced_memory()
+            mem = f"{cur/1024/1024:.1f}MB"
+        except Exception:
+            mem = "N/A"
+        gc.collect()
+        logger.info(
+            "💓 Heartbeat | uptime=%dh%dm | mem=%s | reconnects=%d | polling=%s",
+            hours, mins, mem, _reconnect_count, _polling_running,
+        )
 
 
 # ══════════════════════════════════════════════════════════════
@@ -52,13 +182,13 @@ async def set_commands(bot: Bot) -> None:
         BotCommand(command="start", description="▶️ بدء البوت"),
         BotCommand(command="admin", description="🎛 لوحة التحكم"),
     ]
-    await bot.set_my_commands(public, scope=BotCommandScopeDefault())
-    if ADMIN_ID:
-        try:
+    try:
+        await bot.set_my_commands(public, scope=BotCommandScopeDefault())
+        if ADMIN_ID:
             await bot.set_my_commands(admin, scope=BotCommandScopeChat(chat_id=ADMIN_ID))
             logger.info("✅ أوامر المشرف مُضبطة للمستخدم %s", ADMIN_ID)
-        except Exception as e:
-            logger.warning("تعذّر ضبط أوامر المشرف: %s", e)
+    except Exception as e:
+        logger.warning("تعذّر ضبط الأوامر: %s", e)
 
 
 # ══════════════════════════════════════════════════════════════
@@ -66,18 +196,20 @@ async def set_commands(bot: Bot) -> None:
 # ══════════════════════════════════════════════════════════════
 
 async def global_error_handler(event, exception) -> bool:
+    tb_text = traceback.format_exc()
     logger.error(
-        "خطأ غير مُعالَج:\nEvent: %s\nException: %s\n%s",
-        type(event).__name__, type(exception).__name__, traceback.format_exc(),
+        "⚠️ خطأ غير مُعالَج | Event=%s | Exception=%s\n%s",
+        type(event).__name__, type(exception).__name__, tb_text[-800:],
     )
     if ADMIN_ID:
         try:
             bot = event.bot if hasattr(event, "bot") else None
             if bot:
-                tb = traceback.format_exc()[-800:]
                 await bot.send_message(
                     ADMIN_ID,
-                    f"⚠️ <b>خطأ في البوت</b>\n\n<code>{tb}</code>",
+                    f"⚠️ <b>خطأ في البوت</b>\n\n"
+                    f"<b>النوع:</b> <code>{type(exception).__name__}</code>\n\n"
+                    f"<code>{tb_text[-600:]}</code>",
                     parse_mode="HTML",
                 )
         except Exception:
@@ -86,48 +218,65 @@ async def global_error_handler(event, exception) -> bool:
 
 
 # ══════════════════════════════════════════════════════════════
-#  Webhook
+#  Polling مع Auto-Reconnect
 # ══════════════════════════════════════════════════════════════
 
-async def _health(request):
-    from aiohttp import web as w
-    return w.Response(text="✅ Bot running", status=200)
+async def run_polling(bot: Bot, dp: Dispatcher) -> None:
+    global _polling_running, _reconnect_count
 
+    INITIAL_DELAY = 3
+    MAX_DELAY     = 120
+    delay         = INITIAL_DELAY
 
-async def run_webhook(bot: Bot, dp: Dispatcher, port: int) -> None:
-    from aiohttp import web as w
-    from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
-
-    domains = os.environ.get("REPLIT_DOMAINS", "")
-    if domains:
-        domain      = domains.split(",")[0].strip()
-        webhook_url = f"https://{domain}/webhook"
-        await bot.set_webhook(webhook_url, secret_token=SESSION_SECRET)
-        logger.info("✅ Webhook: %s", webhook_url)
-    else:
-        logger.warning("REPLIT_DOMAINS غير موجود — تشغيل الخادم بدون webhook")
-
-    app = w.Application()
-    app.router.add_get("/",        _health)
-    app.router.add_get("/healthz", _health)
-    SimpleRequestHandler(dp, bot, secret_token=SESSION_SECRET).register(app, path="/webhook")
-    setup_application(app, dp, bot=bot)
-
-    runner = w.AppRunner(app)
-    await runner.setup()
-    await w.TCPSite(runner, "0.0.0.0", port).start()
-    logger.info("🌐 خادم Webhook يعمل على المنفذ %d", port)
-    await asyncio.sleep(float("inf"))
-
-
-# ══════════════════════════════════════════════════════════════
-#  مهمة Heartbeat — تسجيل دوري كل 30 دقيقة
-# ══════════════════════════════════════════════════════════════
-
-async def _heartbeat() -> None:
     while True:
-        await asyncio.sleep(1800)
-        logger.info("💓 البوت يعمل بشكل طبيعي.")
+        _polling_running = False
+        try:
+            logger.info("🔄 بدء Polling (محاولة #%d)...", _reconnect_count + 1)
+            await bot.delete_webhook(drop_pending_updates=(_reconnect_count == 0))
+            _polling_running = True
+            delay = INITIAL_DELAY  # إعادة تعيين التأخير عند النجاح
+
+            await dp.start_polling(
+                bot,
+                allowed_updates=dp.resolve_used_update_types(),
+                handle_signals=False,
+                polling_timeout=30,
+            )
+
+        except TelegramRetryAfter as e:
+            _polling_running = False
+            wait = e.retry_after + 5
+            logger.warning("⏳ Telegram طلب الانتظار %ds (RetryAfter)", wait)
+            await asyncio.sleep(wait)
+
+        except TelegramNetworkError as e:
+            _polling_running = False
+            _reconnect_count += 1
+            logger.error("🌐 خطأ شبكة Telegram: %s — إعادة المحاولة بعد %ds", e, delay)
+            await asyncio.sleep(delay)
+            delay = min(delay * 2, MAX_DELAY)
+
+        except TelegramAPIError as e:
+            _polling_running = False
+            _reconnect_count += 1
+            logger.error("📡 خطأ Telegram API: %s — إعادة المحاولة بعد %ds", e, delay)
+            await asyncio.sleep(delay)
+            delay = min(delay * 2, MAX_DELAY)
+
+        except asyncio.CancelledError:
+            logger.info("🛑 Polling أُوقف.")
+            _polling_running = False
+            return
+
+        except Exception as e:
+            _polling_running = False
+            _reconnect_count += 1
+            logger.error(
+                "💥 خطأ غير متوقع في Polling: %s\n%s\n— إعادة بعد %ds",
+                type(e).__name__, traceback.format_exc()[-600:], delay,
+            )
+            await asyncio.sleep(delay)
+            delay = min(delay * 2, MAX_DELAY)
 
 
 # ══════════════════════════════════════════════════════════════
@@ -136,18 +285,19 @@ async def _heartbeat() -> None:
 
 async def main() -> None:
     if not BOT_TOKEN:
-        logger.critical("❌ TELEGRAM_BOT_TOKEN غير موجود! أضفه في Secrets")
+        logger.critical("❌ TELEGRAM_BOT_TOKEN غير موجود! أضفه في Environment Variables")
         sys.exit(1)
 
-    if not ADMIN_ID:
-        logger.warning("⚠️ ADMIN_TELEGRAM_ID غير محدد")
+    logger.info("=" * 60)
+    logger.info("🚀 تشغيل بوت الاختراق | %s", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+    logger.info("=" * 60)
 
-    # ── تهيئة قاعدة البيانات ──────────────────────────────────
+    # ── قاعدة البيانات ────────────────────────────────────────
     db.init_db()
     db.seed_default_tools(DEFAULT_FREE_TOOLS)
-    logger.info("✅ الأدوات الافتراضية جاهزة")
+    logger.info("✅ قاعدة البيانات جاهزة")
 
-    # ── إنشاء جلسة HTTP مع timeout ────────────────────────────
+    # ── جلسة HTTP مع Timeout ──────────────────────────────────
     session = AiohttpSession(timeout=30)
     bot = Bot(
         token=BOT_TOKEN,
@@ -155,7 +305,7 @@ async def main() -> None:
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
     )
 
-    # ── إعداد Dispatcher ──────────────────────────────────────
+    # ── Dispatcher ────────────────────────────────────────────
     dp = Dispatcher(storage=MemoryStorage())
     dp.message.middleware(AntiSpamMiddleware())
     dp.callback_query.middleware(AntiSpamMiddleware())
@@ -168,69 +318,61 @@ async def main() -> None:
     dp.include_router(nav_router)
     dp.include_router(start_router)
 
+    await set_commands(bot)
+
+    # ── اختيار المنفذ ─────────────────────────────────────────
+    port = int(os.environ.get("PORT", 8080))
+    logger.info("📡 المنفذ: %d", port)
+    logger.info("🌍 Render URL: %s", os.environ.get("RENDER_EXTERNAL_URL", "غير محدد"))
+
+    # ── تشغيل كل المهام معاً ──────────────────────────────────
     try:
-        await set_commands(bot)
-    except Exception as e:
-        logger.warning("تعذّر ضبط الأوامر: %s", e)
-
-    # ── اختيار وضع التشغيل ────────────────────────────────────
-    bot_port = os.environ.get("BOT_PORT") or os.environ.get("PORT")
-    if bot_port:
-        logger.info("🚀 وضع الإنتاج — Webhook (PORT=%s)", bot_port)
-        await run_webhook(bot, dp, int(bot_port))
-    else:
-        logger.info("🤖 وضع التطوير — Long Polling")
+        await asyncio.gather(
+            run_web_server(port),
+            self_ping_task(port),
+            heartbeat_task(),
+            run_polling(bot, dp),
+        )
+    except asyncio.CancelledError:
+        logger.info("🛑 إيقاف المهام...")
+    finally:
         try:
-            await bot.delete_webhook(drop_pending_updates=True)
-        except Exception as e:
-            logger.warning("تعذّر حذف الـ webhook: %s", e)
-
-        # تشغيل heartbeat في الخلفية
-        asyncio.create_task(_heartbeat())
-
-        try:
-            await dp.start_polling(
-                bot,
-                allowed_updates=dp.resolve_used_update_types(),
-                handle_signals=False,
-                polling_timeout=30,
-            )
-        finally:
-            try:
-                await bot.session.close()
-            except Exception:
-                pass
-            logger.info("🛑 البوت توقف.")
+            await bot.session.close()
+        except Exception:
+            pass
+        logger.info("🛑 البوت أُوقف.")
 
 
 # ══════════════════════════════════════════════════════════════
-#  Anti-Crash — إعادة تشغيل لا نهائية مع Exponential Backoff
+#  Anti-Crash — إعادة تشغيل لا نهائية
 # ══════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
-    INITIAL_DELAY = 3   # ثواني
-    MAX_DELAY     = 60  # الحد الأقصى للانتظار
+    INITIAL_DELAY = 5
+    MAX_DELAY     = 60
     delay         = INITIAL_DELAY
     attempt       = 0
+
+    import tracemalloc
+    tracemalloc.start()
 
     while True:
         attempt += 1
         try:
-            logger.info("🚀 تشغيل البوت (محاولة #%d)...", attempt)
+            logger.info("▶️  محاولة تشغيل رقم #%d", attempt)
             asyncio.run(main())
-            # إذا انتهى main() بشكل طبيعي (لا يحدث) نوقف
-            logger.info("✅ انتهى main() بشكل طبيعي.")
+            logger.info("✅ main() انتهى بشكل طبيعي.")
             break
 
         except KeyboardInterrupt:
-            logger.info("🛑 تم إيقاف البوت يدوياً.")
+            logger.info("🛑 إيقاف يدوي.")
             break
 
         except Exception as exc:
             logger.error(
-                "💥 انهيار غير متوقع (#%d): %s\n%s\n— إعادة المحاولة بعد %ds",
-                attempt, type(exc).__name__, traceback.format_exc()[-600:], delay,
+                "💥 انهيار كامل (#%d) | %s\n%s\n↩️  إعادة المحاولة بعد %ds",
+                attempt, type(exc).__name__,
+                traceback.format_exc()[-800:], delay,
             )
             time.sleep(delay)
-            # Exponential backoff: تضاعف وقت الانتظار حتى MAX_DELAY
             delay = min(delay * 2, MAX_DELAY)
