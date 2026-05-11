@@ -1,15 +1,13 @@
 services:
-    - type: worker
-      name: bot-al-ikhtiraq
-      runtime: python
-      buildCommand: pip install -r requirements.txt
-      startCommand: cd bot && python bot.py
-      pythonVersion: "3.11.9"
-      envVars:
-        - key: TELEGRAM_BOT_TOKEN
-          sync: false
-        - key: ADMIN_TELEGRAM_ID
-          sync: false
-        - key: SESSION_SECRET
-          sync: false
-  
+  - type: web
+    name: bot-al-ikhtiraq
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: cd bot && python bot.py
+    envVars:
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: ADMIN_TELEGRAM_ID
+        sync: false
+      - key: SESSION_SECRET
+        sync: false
