@@ -4,6 +4,7 @@ services:
       runtime: python
       buildCommand: pip install -r requirements.txt
       startCommand: cd bot && python bot.py
+      pythonVersion: "3.11.9"
       envVars:
         - key: TELEGRAM_BOT_TOKEN
           sync: false
