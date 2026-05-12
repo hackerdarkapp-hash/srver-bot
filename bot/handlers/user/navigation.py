@@ -183,6 +183,16 @@ async def _send_response(message: Message, resp: dict) -> None:
             await message.answer_document(file_id, caption=caption or text, parse_mode=pm)
         elif rtype == "audio" and file_id:
             await message.answer_audio(file_id, caption=caption or text, parse_mode=pm)
+        elif rtype == "url_link" and url:
+            kb = InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(text="🔗 فتح الرابط", url=url)
+            ]])
+            await message.answer(text or "اضغط لفتح الرابط:", reply_markup=kb, parse_mode=pm)
+        elif rtype == "tg_link" and url:
+            kb = InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(text="📨 فتح في تلجرام", url=url)
+            ]])
+            await message.answer(text or "اضغط لفتح الرابط:", reply_markup=kb, parse_mode=pm)
         elif rtype == "webapp" and url:
             kb = InlineKeyboardMarkup(inline_keyboard=[[
                 InlineKeyboardButton(text="🌐 فتح التطبيق", web_app=WebAppInfo(url=url))
