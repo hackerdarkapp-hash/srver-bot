@@ -103,9 +103,11 @@ async def cb_list(cb: CallbackQuery) -> None:
 # ══════════════════════════════════════════════════════════════
 
 class EditBtn(StatesGroup):
-    CHOOSE = State()
-    FIELD  = State()
-    VALUE  = State()
+    CHOOSE       = State()
+    FIELD        = State()
+    VALUE        = State()
+    RESP_TYPE    = State()
+    RESP_VALUE   = State()
 
 
 @router.callback_query(F.data == "ap:edit")
@@ -139,6 +141,7 @@ async def cb_edit_pick(cb: CallbackQuery, state: FSMContext) -> None:
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📝 الاسم",         callback_data="eb:field:label")],
         [InlineKeyboardButton(text="🔀 القسم",          callback_data="eb:field:section")],
+        [InlineKeyboardButton(text="📄 المحتوى",        callback_data="eb:field:content")],
         [InlineKeyboardButton(text="🔛 تفعيل/تعطيل",   callback_data="eb:field:toggle")],
         [InlineKeyboardButton(text="◀️ إلغاء",          callback_data="ap:panel")],
     ])
@@ -146,6 +149,19 @@ async def cb_edit_pick(cb: CallbackQuery, state: FSMContext) -> None:
         f"✏️ ماذا تريد تعديل في الزر <b>#{btn_id}</b>؟",
         reply_markup=kb, parse_mode="HTML",
     )
+
+
+_EDIT_RESPONSE_TYPES = [
+    ("📝 رسالة نصية", "text"),
+    ("🖼 صورة",        "photo"),
+    ("🎬 فيديو",       "video"),
+    ("📁 ملف",         "file"),
+    ("🎵 صوت",         "audio"),
+    ("🔗 رابط ويب",    "url_link"),
+    ("📨 رابط تلجرام", "tg_link"),
+    ("🌐 WebApp",      "webapp"),
+    ("❌ بدون رد",    "none"),
+]
 
 
 @router.callback_query(EditBtn.FIELD, F.data.startswith("eb:field:"))
@@ -174,6 +190,16 @@ async def cb_edit_field(cb: CallbackQuery, state: FSMContext) -> None:
             [InlineKeyboardButton(text="◀️ إلغاء", callback_data="ap:panel")],
         ])
         await cb.message.edit_text("🔀 اختر القسم الجديد:", reply_markup=kb)
+    elif field == "content":
+        await state.set_state(EditBtn.RESP_TYPE)
+        rows = [[InlineKeyboardButton(text=lbl, callback_data=f"eb:rt:{code}")]
+                for lbl, code in _EDIT_RESPONSE_TYPES]
+        rows.append([InlineKeyboardButton(text="◀️ إلغاء", callback_data="ap:panel")])
+        await cb.message.edit_text(
+            f"📄 <b>اختر نوع المحتوى الجديد للزر #{btn_id}:</b>",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
+            parse_mode="HTML",
+        )
     else:
         await state.update_data(edit_field=field)
         await state.set_state(EditBtn.VALUE)
@@ -184,6 +210,99 @@ async def cb_edit_field(cb: CallbackQuery, state: FSMContext) -> None:
             ]),
             parse_mode="HTML",
         )
+
+
+@router.callback_query(EditBtn.RESP_TYPE, F.data.startswith("eb:rt:"))
+async def cb_edit_resp_type(cb: CallbackQuery, state: FSMContext) -> None:
+    rtype = cb.data.split(":")[2]
+    await state.update_data(edit_resp_type=rtype)
+    await cb.answer()
+
+    if rtype == "none":
+        data   = await state.get_data()
+        btn_id = data["edit_btn_id"]
+        await state.clear()
+        db.set_response(button_id=btn_id, response_type="none")
+        await cb.message.edit_text(
+            f"✅ تم تعيين الزر #{btn_id} بلا رد.",
+            reply_markup=_back_to_panel(),
+        )
+        return
+
+    await state.set_state(EditBtn.RESP_VALUE)
+    hints = {
+        "text":     "📝 <b>أرسل النص الجديد:</b>",
+        "photo":    "🖼 <b>أرسل الصورة أو رابطها:</b>",
+        "video":    "🎬 <b>أرسل الفيديو:</b>",
+        "file":     "📁 <b>أرسل الملف:</b>",
+        "audio":    "🎵 <b>أرسل ملف الصوت:</b>",
+        "url_link": "🔗 <b>أرسل رابط الموقع:</b>\nمثال: <code>https://google.com</code>",
+        "tg_link":  "📨 <b>أرسل رابط تلجرام:</b>\nمثال: <code>https://t.me/username</code>",
+        "webapp":   "🌐 <b>أرسل رابط الـ WebApp (https://):</b>",
+    }
+    await cb.message.edit_text(
+        hints.get(rtype, "أرسل المحتوى الجديد:"),
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="◀️ إلغاء", callback_data="ap:panel")]
+        ]),
+        parse_mode="HTML",
+    )
+
+
+@router.message(EditBtn.RESP_VALUE)
+async def handle_edit_resp_value(message: Message, state: FSMContext) -> None:
+    if not is_admin(message.from_user.id):
+        return
+    data   = await state.get_data()
+    btn_id = data["edit_btn_id"]
+    rtype  = data.get("edit_resp_type", "text")
+
+    text_content = None
+    file_id      = None
+    file_type    = None
+    url          = None
+
+    if rtype == "text":
+        text_content = message.text
+    elif rtype in ("photo", "video", "file", "audio"):
+        if rtype == "photo" and message.photo:
+            file_id   = message.photo[-1].file_id
+            file_type = "photo"
+        elif rtype == "video" and message.video:
+            file_id   = message.video.file_id
+            file_type = "video"
+        elif rtype == "file" and message.document:
+            file_id   = message.document.file_id
+            file_type = "file"
+        elif rtype == "audio" and message.audio:
+            file_id   = message.audio.file_id
+            file_type = "audio"
+        elif message.text and message.text.startswith("http"):
+            url = message.text.strip()
+        else:
+            await message.answer(f"⚠️ يرجى إرسال {rtype} صحيح.")
+            return
+    elif rtype in ("url_link", "tg_link"):
+        url = (message.text or "").strip()
+        if not url.startswith("http"):
+            await message.answer("⚠️ الرابط يجب أن يبدأ بـ http:// أو https://")
+            return
+    elif rtype == "webapp":
+        url = (message.text or "").strip()
+        if not url.startswith("https://"):
+            await message.answer("⚠️ الرابط يجب أن يبدأ بـ https://")
+            return
+
+    await state.clear()
+    db.set_response(
+        button_id=btn_id, response_type=rtype,
+        text_content=text_content, file_id=file_id,
+        file_type=file_type, url=url,
+    )
+    await message.answer(
+        f"✅ <b>تم تحديث محتوى الزر #{btn_id} بنجاح!</b>",
+        reply_markup=admin_panel_keyboard(), parse_mode="HTML",
+    )
 
 
 @router.callback_query(EditBtn.VALUE, F.data.startswith("eb:val:"))
