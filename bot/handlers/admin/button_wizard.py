@@ -23,6 +23,8 @@ RESPONSE_TYPES = [
     ("🎬 فيديو",       "video"),
     ("📁 ملف",         "file"),
     ("🎵 صوت",         "audio"),
+    ("🔗 رابط ويب",    "url_link"),
+    ("📨 رابط تلجرام", "tg_link"),
     ("🌐 WebApp",      "webapp"),
     ("❌ بدون رد",    "none"),
 ]
@@ -191,12 +193,14 @@ async def cb_choose_resp_type(cb: CallbackQuery, state: FSMContext) -> None:
     else:
         await state.set_state(AddBtn.RESP_VALUE)
         hints = {
-            "text":   "📝 <b>أرسل النص الذي سيظهر للمستخدم:</b>",
-            "photo":  "🖼 <b>أرسل الصورة أو رابطها:</b>",
-            "video":  "🎬 <b>أرسل الفيديو:</b>",
-            "file":   "📁 <b>أرسل الملف:</b>",
-            "audio":  "🎵 <b>أرسل ملف الصوت:</b>",
-            "webapp": "🌐 <b>أرسل رابط الـ WebApp (https://):</b>",
+            "text":     "📝 <b>أرسل النص الذي سيظهر للمستخدم:</b>",
+            "photo":    "🖼 <b>أرسل الصورة أو رابطها:</b>",
+            "video":    "🎬 <b>أرسل الفيديو:</b>",
+            "file":     "📁 <b>أرسل الملف:</b>",
+            "audio":    "🎵 <b>أرسل ملف الصوت:</b>",
+            "url_link": "🔗 <b>أرسل رابط الموقع:</b>\nمثال: <code>https://google.com</code>",
+            "tg_link":  "📨 <b>أرسل رابط تلجرام:</b>\nمثال: <code>https://t.me/username</code>",
+            "webapp":   "🌐 <b>أرسل رابط الـ WebApp (https://):</b>",
         }
         await cb.message.edit_text(
             hints.get(rtype, "أرسل المحتوى:"),
@@ -231,6 +235,12 @@ async def add_resp_value(message: Message, state: FSMContext) -> None:
             await message.answer(f"⚠️ يرجى إرسال {rtype} صحيح.")
             return
         await state.update_data(file_id=file_id, file_type=rtype)
+    elif rtype in ("url_link", "tg_link"):
+        url = (message.text or "").strip()
+        if not url.startswith("http"):
+            await message.answer("⚠️ الرابط يجب أن يبدأ بـ http:// أو https://")
+            return
+        await state.update_data(url=url)
     elif rtype == "webapp":
         url = (message.text or "").strip()
         if not url.startswith("https://"):
