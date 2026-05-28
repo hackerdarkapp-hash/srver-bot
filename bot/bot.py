@@ -245,6 +245,7 @@ async def main() -> None:
 
     db.init_db()
     db.seed_default_tools(DEFAULT_FREE_TOOLS)
+    db.seed_from_file()
     logger.info("✅ قاعدة البيانات جاهزة")
 
     # ── البوت والـ Dispatcher — مرة واحدة فقط ─────────────────
