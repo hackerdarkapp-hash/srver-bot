@@ -6,6 +6,6 @@ from .db import (
     save_user, get_user, get_all_users, get_users_count,
     get_new_users_today, get_users_with_phone, save_phone, has_phone, toggle_block,
     get_setting, set_setting,
-    seed_default_tools, button_exists_by_tool_id,
+    seed_default_tools, button_exists_by_tool_id, seed_from_file,
     log_tool_usage, get_tool_stats,
 )
