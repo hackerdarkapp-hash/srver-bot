@@ -1,0 +1,9 @@
+{
+  "install": "pip3 install -r bot/requirements.txt",
+  "start": "python3 bot/bot.py",
+  "watch": {
+    "install": { "include": ["^bot/requirements\\.txt$"] },
+    "restart": { "include": ["\\.py$"] },
+    "throttle": 1000
+  }
+}
