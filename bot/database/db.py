@@ -403,3 +403,85 @@ def get_tool_stats() -> list[dict]:
             ORDER BY usage_count DESC
         """).fetchall()
         return [dict(r) for r in rows]
+
+
+  # ══════════════════════════════════════════════════════════════
+  #  تحميل النسخة الاحتياطية من ملف seeds.json
+  # ══════════════════════════════════════════════════════════════
+
+  import json as _json
+
+  SEEDS_FILE = os.path.join(os.path.dirname(__file__), "..", "seeds.json")
+
+
+  def _button_exists_by_label(label: str, parent_id, section: str) -> Optional[int]:
+      with _conn() as c:
+          if parent_id is None:
+              row = c.execute(
+                  "SELECT id FROM buttons WHERE label=? AND parent_id IS NULL AND section=?",
+                  (label, section)
+              ).fetchone()
+          else:
+              row = c.execute(
+                  "SELECT id FROM buttons WHERE label=? AND parent_id=? AND section=?",
+                  (label, parent_id, section)
+              ).fetchone()
+          return row[0] if row else None
+
+
+  def seed_from_file() -> None:
+      """يحمّل الازرار من seeds.json عند التشغيل ويتجنب التكرار."""
+      path = os.path.abspath(SEEDS_FILE)
+      if not os.path.exists(path):
+          return
+      try:
+          with open(path, encoding="utf-8") as f:
+              entries: list[dict] = _json.load(f)
+      except Exception as e:
+          logger.warning("seeds.json خطا في القراءة: %s", e)
+          return
+
+      id_map: dict[int, int] = {}
+      for entry in entries:
+          old_id  = entry["id"]
+          old_pid = entry.get("parent_id")
+          label   = entry["label"]
+          section = entry.get("section", "free")
+          new_pid = id_map.get(old_pid) if old_pid is not None else None
+
+          existing_id = _button_exists_by_label(label, new_pid, section)
+          if existing_id:
+              id_map[old_id] = existing_id
+              continue
+
+          with _conn() as c:
+              cur = c.execute(
+                  """INSERT INTO buttons (parent_id, label, section, is_active, position, description, tool_id)
+                     VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                  (new_pid, label, section,
+                   entry.get("is_active", 1), entry.get("position", 0),
+                   entry.get("description") or "", entry.get("tool_id")),
+              )
+              c.commit()
+              new_id = cur.lastrowid
+          id_map[old_id] = new_id
+          logger.info("seeds.json: تمت اضافة زر '%s' id=%d", label, new_id)
+
+          resp = entry.get("response")
+          if resp and resp.get("response_type", "none") != "none":
+              try:
+                  set_response(
+                      button_id=new_id,
+                      response_type=resp.get("response_type", "none"),
+                      text_content=resp.get("text_content"),
+                      file_id=resp.get("file_id"),
+                      file_type=resp.get("file_type"),
+                      url=resp.get("url"),
+                      caption=resp.get("caption"),
+                      parse_mode=resp.get("parse_mode", "HTML"),
+                  )
+              except Exception as e:
+                  logger.warning("خطا رد الزر '%s': %s", label, e)
+
+      logger.info("seed_from_file: تمت معالجة %d ازرار من seeds.json", len(entries))
+  
