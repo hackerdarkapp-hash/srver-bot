@@ -1,7 +1,4 @@
-"""
-  database/backup.py — نسخ احتياطي تلقائي على GitHub
-  يُصدّر الأزرار وردودها إلى seeds.json ويرفعها على GitHub تلقائياً
-  """
+"""database/backup.py — نسخ احتياطي تلقائي على GitHub"""
   import asyncio
   import base64
   import json
@@ -50,49 +47,43 @@
 
   async def _push() -> None:
       if not GITHUB_TOKEN:
-          logger.warning("⚠️ GITHUB_TOKEN غير موجود — تخطي النسخ الاحتياطي")
+          logger.warning("GITHUB_TOKEN غير موجود — تخطي النسخ الاحتياطي")
           return
-
       async with _backup_lock:
           try:
               import aiohttp
               loop = asyncio.get_event_loop()
               content_str = await loop.run_in_executor(None, export_to_json)
               content_b64 = base64.b64encode(content_str.encode()).decode()
-
               hdrs = {
                   "Authorization": f"token {GITHUB_TOKEN}",
                   "Accept": "application/vnd.github.v3+json",
                   "User-Agent": "srver-bot-backup",
               }
               url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{SEEDS_PATH}"
-
               async with aiohttp.ClientSession() as session:
                   async with session.get(url, headers=hdrs) as r:
                       sha = (await r.json()).get("sha") if r.status == 200 else None
-
                   payload = {
-                      "message": f"🔄 backup {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+                      "message": f"backup {datetime.now().strftime('%Y-%m-%d %H:%M')}",
                       "content": content_b64,
                   }
                   if sha:
                       payload["sha"] = sha
-
                   async with session.put(url, headers=hdrs, json=payload) as r:
                       if r.status in (200, 201):
-                          data = json.loads(content_str)
-                          logger.info("✅ نسخ احتياطي على GitHub (%d زر)", len(data))
+                          logger.info("تم النسخ الاحتياطي على GitHub (%d زر)", len(json.loads(content_str)))
                       else:
-                          logger.error("❌ فشل النسخ الاحتياطي: %d", r.status)
+                          logger.error("فشل النسخ الاحتياطي: %d", r.status)
           except Exception as e:
-              logger.error("❌ خطأ في النسخ الاحتياطي: %s", e)
+              logger.error("خطأ في النسخ الاحتياطي: %s", e)
 
 
   def schedule_backup() -> None:
-      """جدولة النسخ الاحتياطي في الخلفية (non-blocking)."""
+      """جدولة النسخ الاحتياطي في الخلفية."""
       try:
           loop = asyncio.get_running_loop()
           loop.create_task(_push())
       except RuntimeError:
-          logger.warning("schedule_backup: لا يوجد event loop نشط")
+          pass
   
