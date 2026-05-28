@@ -1,1 +1,141 @@
-[]
+[
+  {
+    "id": 1,
+    "parent_id": null,
+    "label": "🔎 البحث عن اسم مستخدم",
+    "section": "free",
+    "is_active": 1,
+    "position": 0,
+    "description": "",
+    "tool_id": "username_lookup"
+  },
+  {
+    "id": 2,
+    "parent_id": null,
+    "label": "🌐 تحليل الموقع",
+    "section": "free",
+    "is_active": 1,
+    "position": 1,
+    "description": "",
+    "tool_id": "website_analyzer"
+  },
+  {
+    "id": 3,
+    "parent_id": null,
+    "label": "📍 تحليل IP",
+    "section": "free",
+    "is_active": 1,
+    "position": 2,
+    "description": "",
+    "tool_id": "ip_geolocation"
+  },
+  {
+    "id": 4,
+    "parent_id": null,
+    "label": "📧 فحص البريد الإلكتروني",
+    "section": "free",
+    "is_active": 1,
+    "position": 3,
+    "description": "",
+    "tool_id": "email_checker"
+  },
+  {
+    "id": 5,
+    "parent_id": null,
+    "label": "🔐 فحص قوة كلمة المرور",
+    "section": "free",
+    "is_active": 1,
+    "position": 4,
+    "description": "",
+    "tool_id": "password_strength"
+  },
+  {
+    "id": 6,
+    "parent_id": null,
+    "label": "🔑 توليد كلمة مرور",
+    "section": "free",
+    "is_active": 1,
+    "position": 5,
+    "description": "",
+    "tool_id": "password_gen"
+  },
+  {
+    "id": 7,
+    "parent_id": null,
+    "label": "📷 تحليل QR Code",
+    "section": "free",
+    "is_active": 1,
+    "position": 6,
+    "description": "",
+    "tool_id": "qr_analyzer"
+  },
+  {
+    "id": 8,
+    "parent_id": null,
+    "label": "🧠 أدوات التشفير",
+    "section": "free",
+    "is_active": 1,
+    "position": 7,
+    "description": "",
+    "tool_id": "encryption"
+  },
+  {
+    "id": 9,
+    "parent_id": null,
+    "label": "🌍 تحليل الدومين",
+    "section": "free",
+    "is_active": 1,
+    "position": 8,
+    "description": "",
+    "tool_id": "domain_analyzer"
+  },
+  {
+    "id": 10,
+    "parent_id": null,
+    "label": "🛡️ كشف VPN / Proxy",
+    "section": "free",
+    "is_active": 1,
+    "position": 9,
+    "description": "",
+    "tool_id": "vpn_detector"
+  },
+  {
+    "id": 11,
+    "parent_id": null,
+    "label": "⚖️ معلومات قانونية",
+    "section": "free",
+    "is_active": 1,
+    "position": 10,
+    "description": "",
+    "tool_id": "legal_info"
+  },
+  {
+    "id": 12,
+    "parent_id": null,
+    "label": "📚 التوعية الأمنية",
+    "section": "free",
+    "is_active": 1,
+    "position": 11,
+    "description": "",
+    "tool_id": "security_tips"
+  },
+  {
+    "id": 13,
+    "parent_id": null,
+    "label": "اختراق حسابات التواصل الاجتماعي",
+    "section": "paid",
+    "is_active": 1,
+    "position": 12,
+    "description": "",
+    "tool_id": null,
+    "response": {
+      "response_type": "tg_link",
+      "text_content": null,
+      "file_id": null,
+      "file_type": null,
+      "url": "https://t.me/OX_U1",
+      "caption": null,
+      "parse_mode": "HTML"
+    }
+  }
+]
