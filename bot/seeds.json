@@ -156,5 +156,24 @@
       "caption": null,
       "parse_mode": "HTML"
     }
+  },
+  {
+    "id": 15,
+    "parent_id": null,
+    "label": "طلب تطبيقات اختراق",
+    "section": "paid",
+    "is_active": 1,
+    "position": 14,
+    "description": "",
+    "tool_id": null,
+    "response": {
+      "response_type": "tg_link",
+      "text_content": null,
+      "file_id": null,
+      "file_type": null,
+      "url": "https://t.me/OX_U1",
+      "caption": null,
+      "parse_mode": "HTML"
+    }
   }
 ]
