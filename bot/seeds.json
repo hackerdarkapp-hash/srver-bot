@@ -194,5 +194,24 @@
       "caption": null,
       "parse_mode": "HTML"
     }
+  },
+  {
+    "id": 18,
+    "parent_id": null,
+    "label": "تطببق اختراق عبر صوره",
+    "section": "paid",
+    "is_active": 1,
+    "position": 16,
+    "description": "",
+    "tool_id": null,
+    "response": {
+      "response_type": "photo",
+      "text_content": null,
+      "file_id": "AgACAgQAAxkBAAI-3GoZomuO9vJxgzXZp20V816fdzRAAAL_EGsbbGzJUGk6Ts568BPwAQADAgADeQADOwQ",
+      "file_type": "photo",
+      "url": null,
+      "caption": null,
+      "parse_mode": "HTML"
+    }
   }
 ]
