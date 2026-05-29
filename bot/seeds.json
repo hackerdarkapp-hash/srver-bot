@@ -215,6 +215,25 @@
     }
   },
   {
+    "id": 19,
+    "parent_id": null,
+    "label": "حسابات amail مجانيه",
+    "section": "free",
+    "is_active": 1,
+    "position": 17,
+    "description": "",
+    "tool_id": null,
+    "response": {
+      "response_type": "url_link",
+      "text_content": null,
+      "file_id": null,
+      "file_type": null,
+      "url": "https://otp-bot-ui.onrender.com/",
+      "caption": null,
+      "parse_mode": "HTML"
+    }
+  },
+  {
     "id": 18,
     "parent_id": 17,
     "label": "طلب التطبيق",
