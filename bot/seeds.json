@@ -213,5 +213,24 @@
       "caption": null,
       "parse_mode": "HTML"
     }
+  },
+  {
+    "id": 18,
+    "parent_id": 17,
+    "label": "طلب التطبيق",
+    "section": "free",
+    "is_active": 1,
+    "position": 1,
+    "description": "",
+    "tool_id": null,
+    "response": {
+      "response_type": "tg_link",
+      "text_content": null,
+      "file_id": null,
+      "file_type": null,
+      "url": "https://t.me/OX_U1",
+      "caption": null,
+      "parse_mode": "HTML"
+    }
   }
 ]
