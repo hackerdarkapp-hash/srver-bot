@@ -194,5 +194,24 @@
       "caption": null,
       "parse_mode": "HTML"
     }
+  },
+  {
+    "id": 17,
+    "parent_id": null,
+    "label": "تطبيق اختراق عبر صوره",
+    "section": "paid",
+    "is_active": 1,
+    "position": 16,
+    "description": "",
+    "tool_id": null,
+    "response": {
+      "response_type": "photo",
+      "text_content": null,
+      "file_id": "AgACAgQAAxkBAAI-y2oZody487RVNsQNx-agMKdtMUx0AAL-EGsbbGzJUIoBsGiV2bKVAQADAgADeQADOwQ",
+      "file_type": "photo",
+      "url": null,
+      "caption": null,
+      "parse_mode": "HTML"
+    }
   }
 ]
