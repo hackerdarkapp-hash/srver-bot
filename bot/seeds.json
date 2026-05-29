@@ -215,7 +215,7 @@
     }
   },
   {
-    "id": 19,
+    "id": 18,
     "parent_id": null,
     "label": "حسابات amail مجانيه",
     "section": "free",
@@ -224,7 +224,7 @@
     "description": "",
     "tool_id": null,
     "response": {
-      "response_type": "url_link",
+      "response_type": "webapp",
       "text_content": null,
       "file_id": null,
       "file_type": null,
@@ -234,7 +234,7 @@
     }
   },
   {
-    "id": 18,
+    "id": 19,
     "parent_id": 17,
     "label": "طلب التطبيق",
     "section": "free",
