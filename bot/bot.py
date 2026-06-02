@@ -1,8 +1,9 @@
 """
-bot.py — نظام تشغيل البوت 24/7 على Render
-═══════════════════════════════════════════════════
+bot.py — تشغيل عدة بوتات تيليجرام بنفس الإعدادات والأدمن والقاعدة
+═══════════════════════════════════════════════════════════════════
+• Multi-Bot:  كل بوت له token خاص، dispatcher وقاعدة بيانات مشتركة
 • HTTP Keep-Alive Server   • Self-Ping كل 10 دقائق
-• Anti-Crash System        • Auto-Reconnect
+• Anti-Crash System        • Auto-Reconnect لكل بوت
 • Heartbeat Monitor        • Global Error Handler
 """
 
@@ -24,7 +25,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import BotCommand, BotCommandScopeChat, BotCommandScopeDefault
 
 import database as db
-from config import ADMIN_ID, BOT_TOKEN, SESSION_SECRET, DEFAULT_FREE_TOOLS
+from config import ADMIN_ID, SESSION_SECRET, DEFAULT_FREE_TOOLS, get_all_bot_tokens
 from handlers import (
     nav_router, panel_router, start_router,
     usermgmt_router, wizard_router, tools_router,
@@ -53,13 +54,13 @@ logging.getLogger("aiohttp").setLevel(logging.WARNING)
 
 logger = logging.getLogger(__name__)
 
-BOT_START_TIME   = datetime.now()
-_polling_active  = False
-_reconnect_count = 0
+BOT_START_TIME    = datetime.now()
+_active_bots: dict[str, bool] = {}   # token_prefix → polling active
+_reconnect_counts: dict[str, int] = {}
 
 
 # ══════════════════════════════════════════════════════════════
-#  HTTP Server — Keep-Alive
+#  HTTP Server — Keep-Alive (مشترك لجميع البوتات)
 # ══════════════════════════════════════════════════════════════
 
 async def _health(req: aio_web.Request) -> aio_web.Response:
@@ -69,8 +70,8 @@ async def _health(req: aio_web.Request) -> aio_web.Response:
     return aio_web.json_response({
         "status":     "ok",
         "uptime":     f"{h}h {m}m",
-        "polling":    _polling_active,
-        "reconnects": _reconnect_count,
+        "bots_count": len(_active_bots),
+        "bots":       {k: v for k, v in _active_bots.items()},
         "time":       datetime.now().isoformat(),
     })
 
@@ -82,7 +83,6 @@ async def start_http_server(port: int) -> None:
     runner = aio_web.AppRunner(app)
     await runner.setup()
 
-    # جرّب المنفذ المطلوب ثم بدائل إذا كان مشغولاً
     candidates = [port, port + 1, 8000, 5000, 3000, 9000]
     for p in candidates:
         try:
@@ -92,7 +92,7 @@ async def start_http_server(port: int) -> None:
         except OSError:
             logger.warning("⚠️ المنفذ %d مشغول، أجرب التالي...", p)
 
-    logger.warning("⚠️ تعذّر تشغيل HTTP Server — البوت سيعمل بدونه (Polling فقط)")
+    logger.warning("⚠️ تعذّر تشغيل HTTP Server")
 
 
 # ══════════════════════════════════════════════════════════════
@@ -125,9 +125,10 @@ async def heartbeat_loop() -> None:
         uptime = datetime.now() - BOT_START_TIME
         h, rem = divmod(int(uptime.total_seconds()), 3600)
         gc.collect()
+        active = sum(1 for v in _active_bots.values() if v)
         logger.info(
-            "💓 Heartbeat | uptime=%dh%dm | reconnects=%d | polling=%s",
-            h, rem // 60, _reconnect_count, _polling_active,
+            "💓 Heartbeat | uptime=%dh%dm | بوتات نشطة=%d/%d",
+            h, rem // 60, active, len(_active_bots),
         )
 
 
@@ -135,7 +136,7 @@ async def heartbeat_loop() -> None:
 #  أوامر البوت
 # ══════════════════════════════════════════════════════════════
 
-async def set_commands(bot: Bot) -> None:
+async def set_commands(bot: Bot, bot_label: str) -> None:
     try:
         await bot.set_my_commands(
             [BotCommand(command="start", description="▶️ بدء البوت")],
@@ -147,37 +148,43 @@ async def set_commands(bot: Bot) -> None:
                  BotCommand(command="admin", description="🎛 لوحة التحكم")],
                 scope=BotCommandScopeChat(chat_id=ADMIN_ID),
             )
+        logger.info("[%s] ✅ أوامر البوت ضُبطت", bot_label)
     except Exception as e:
-        logger.warning("تعذّر ضبط الأوامر: %s", e)
+        logger.warning("[%s] تعذّر ضبط الأوامر: %s", bot_label, e)
 
 
 # ══════════════════════════════════════════════════════════════
 #  Global Error Handler
 # ══════════════════════════════════════════════════════════════
 
-async def global_error_handler(event, exception) -> bool:
-    tb = traceback.format_exc()[-600:]
-    logger.error("⚠️ %s: %s", type(exception).__name__, str(exception)[:150])
-    if ADMIN_ID:
-        try:
-            bot = getattr(event, "bot", None)
-            if bot:
-                await bot.send_message(
-                    ADMIN_ID,
-                    f"⚠️ <b>خطأ</b>\n<code>{type(exception).__name__}</code>\n\n<code>{tb}</code>",
-                    parse_mode="HTML",
-                )
-        except Exception:
-            pass
-    return True
+def make_error_handler(bot_label: str):
+    async def global_error_handler(event, exception) -> bool:
+        tb = traceback.format_exc()[-600:]
+        logger.error("[%s] ⚠️ %s: %s", bot_label, type(exception).__name__, str(exception)[:150])
+        if ADMIN_ID:
+            try:
+                bot = getattr(event, "bot", None)
+                if bot:
+                    await bot.send_message(
+                        ADMIN_ID,
+                        f"⚠️ <b>[{bot_label}] خطأ</b>\n"
+                        f"<code>{type(exception).__name__}</code>\n\n"
+                        f"<code>{tb}</code>",
+                        parse_mode="HTML",
+                    )
+            except Exception:
+                pass
+        return True
+    return global_error_handler
 
 
 # ══════════════════════════════════════════════════════════════
-#  Polling مع Auto-Reconnect لا نهائي
+#  Polling مع Auto-Reconnect لكل بوت
 # ══════════════════════════════════════════════════════════════
 
-async def polling_loop(bot: Bot, dp: Dispatcher) -> None:
-    global _polling_active, _reconnect_count
+async def polling_loop(bot: Bot, dp: Dispatcher, bot_label: str) -> None:
+    _active_bots[bot_label] = False
+    _reconnect_counts[bot_label] = 0
 
     INIT_DELAY = 3
     MAX_DELAY  = 120
@@ -185,13 +192,14 @@ async def polling_loop(bot: Bot, dp: Dispatcher) -> None:
     first_run  = True
 
     while True:
-        _polling_active = False
+        _active_bots[bot_label] = False
         try:
-            logger.info("🔄 بدء Polling (محاولة #%d)...", _reconnect_count + 1)
+            logger.info("[%s] 🔄 بدء Polling (محاولة #%d)...",
+                        bot_label, _reconnect_counts[bot_label] + 1)
             await bot.delete_webhook(drop_pending_updates=first_run)
-            first_run       = False
-            _polling_active = True
-            delay           = INIT_DELAY
+            first_run = False
+            _active_bots[bot_label] = True
+            delay = INIT_DELAY
 
             await dp.start_polling(
                 bot,
@@ -201,29 +209,30 @@ async def polling_loop(bot: Bot, dp: Dispatcher) -> None:
             )
 
         except TelegramRetryAfter as e:
-            _polling_active = False
+            _active_bots[bot_label] = False
             wait = e.retry_after + 5
-            logger.warning("⏳ RetryAfter %ds", wait)
+            logger.warning("[%s] ⏳ RetryAfter %ds", bot_label, wait)
             await asyncio.sleep(wait)
 
         except (TelegramNetworkError, TelegramAPIError) as e:
-            _polling_active  = False
-            _reconnect_count += 1
-            logger.error("🌐 %s: %s — إعادة بعد %ds", type(e).__name__, str(e)[:80], delay)
+            _active_bots[bot_label] = False
+            _reconnect_counts[bot_label] += 1
+            logger.error("[%s] 🌐 %s: %s — إعادة بعد %ds",
+                         bot_label, type(e).__name__, str(e)[:80], delay)
             await asyncio.sleep(delay)
             delay = min(delay * 2, MAX_DELAY)
 
         except asyncio.CancelledError:
-            _polling_active = False
-            logger.info("🛑 Polling أُلغي.")
+            _active_bots[bot_label] = False
+            logger.info("[%s] 🛑 Polling أُلغي.", bot_label)
             return
 
         except Exception as e:
-            _polling_active  = False
-            _reconnect_count += 1
+            _active_bots[bot_label] = False
+            _reconnect_counts[bot_label] += 1
             logger.error(
-                "💥 خطأ Polling [%s]: %s\n%s\n↩️ إعادة بعد %ds",
-                type(e).__name__, str(e)[:100],
+                "[%s] 💥 خطأ Polling [%s]: %s\n%s\n↩️ إعادة بعد %ds",
+                bot_label, type(e).__name__, str(e)[:100],
                 traceback.format_exc()[-300:], delay,
             )
             await asyncio.sleep(delay)
@@ -231,36 +240,18 @@ async def polling_loop(bot: Bot, dp: Dispatcher) -> None:
 
 
 # ══════════════════════════════════════════════════════════════
-#  main() — يُستدعى مرة واحدة، كل الـ retry بداخله
+#  بناء Dispatcher مشترك
 # ══════════════════════════════════════════════════════════════
 
-async def main() -> None:
-    if not BOT_TOKEN:
-        logger.critical("❌ TELEGRAM_BOT_TOKEN غير موجود!")
-        sys.exit(1)
-
-    logger.info("=" * 55)
-    logger.info("🚀 بوت الاختراق | %s", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-    logger.info("=" * 55)
-
-    db.init_db()
-    db.seed_default_tools(DEFAULT_FREE_TOOLS)
-    db.seed_from_file()
-    logger.info("✅ قاعدة البيانات جاهزة")
-
-    # ── البوت والـ Dispatcher — مرة واحدة فقط ─────────────────
-    session = AiohttpSession(timeout=30)
-    bot = Bot(
-        token=BOT_TOKEN,
-        session=session,
-        default=DefaultBotProperties(parse_mode=ParseMode.HTML),
-    )
+def build_shared_dispatcher() -> Dispatcher:
+    """
+    ينشئ Dispatcher واحد مشترك بين جميع البوتات.
+    نفس الأوامر، نفس الأدمن، نفس قاعدة البيانات.
+    """
     dp = Dispatcher(storage=MemoryStorage())
     dp.message.middleware(AntiSpamMiddleware())
     dp.callback_query.middleware(AntiSpamMiddleware())
-    dp.errors.register(global_error_handler)
 
-    # ── الـ Routers — مرة واحدة فقط ───────────────────────────
     dp.include_router(tools_router)
     dp.include_router(panel_router)
     dp.include_router(wizard_router)
@@ -268,31 +259,81 @@ async def main() -> None:
     dp.include_router(nav_router)
     dp.include_router(start_router)
 
-    await set_commands(bot)
+    return dp
+
+
+# ══════════════════════════════════════════════════════════════
+#  main() — تشغيل جميع البوتات معاً
+# ══════════════════════════════════════════════════════════════
+
+async def main() -> None:
+    tokens = get_all_bot_tokens()
+
+    if not tokens:
+        logger.critical(
+            "❌ لم يُعرَّف أي توكن!\n"
+            "   أضف BOT_TOKEN_1 (و BOT_TOKEN_2 ...) أو TELEGRAM_BOT_TOKEN"
+        )
+        sys.exit(1)
+
+    logger.info("=" * 60)
+    logger.info("🚀 Multi-Bot Launcher | %s", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+    logger.info("🤖 عدد البوتات: %d", len(tokens))
+    logger.info("=" * 60)
+
+    # تهيئة قاعدة البيانات (مشتركة بين جميع البوتات)
+    db.init_db()
+    db.seed_default_tools(DEFAULT_FREE_TOOLS)
+    db.seed_from_file()
+    logger.info("✅ قاعدة البيانات المشتركة جاهزة")
+
+    # Dispatcher مشترك
+    dp = build_shared_dispatcher()
+
+    # إنشاء بوت لكل توكن
+    bots: list[tuple[Bot, str]] = []
+    for idx, token in enumerate(tokens, start=1):
+        bot_label = f"bot_{idx}"
+        session   = AiohttpSession(timeout=30)
+        bot       = Bot(
+            token=token,
+            session=session,
+            default=DefaultBotProperties(parse_mode=ParseMode.HTML),
+        )
+        dp.errors.register(make_error_handler(bot_label))
+        bots.append((bot, bot_label))
+        logger.info("✅ [%s] تم إنشاؤه | token=...%s", bot_label, token[-6:])
+
+    # ضبط الأوامر لكل بوت
+    for bot, bot_label in bots:
+        await set_commands(bot, bot_label)
 
     port = int(os.environ.get("PORT", 8080))
     logger.info("📡 PORT=%d | URL=%s", port,
                 os.environ.get("RENDER_EXTERNAL_URL", "local"))
 
-    # ── تشغيل كل المهام معاً ──────────────────────────────────
+    # تشغيل كل شيء معاً: HTTP Server + Ping + Heartbeat + polling لكل بوت
+    polling_tasks = [polling_loop(bot, dp, lbl) for bot, lbl in bots]
+
     try:
         await asyncio.gather(
             start_http_server(port),
             self_ping_loop(port),
             heartbeat_loop(),
-            polling_loop(bot, dp),
+            *polling_tasks,
         )
     finally:
-        try:
-            await bot.session.close()
-        except Exception:
-            pass
-        logger.info("🏁 البوت أُوقف.")
+        for bot, bot_label in bots:
+            try:
+                await bot.session.close()
+                logger.info("[%s] 🔌 Session مغلق", bot_label)
+            except Exception:
+                pass
+        logger.info("🏁 جميع البوتات أُوقفت.")
 
 
 # ══════════════════════════════════════════════════════════════
-#  نقطة الدخول — asyncio.run() مرة واحدة فقط
-#  إذا خرجت العملية، Render يُعيد تشغيلها تلقائياً
+#  نقطة الدخول
 # ══════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
@@ -305,5 +346,4 @@ if __name__ == "__main__":
             "💥 خطأ فادح: %s\n%s",
             type(e).__name__, traceback.format_exc(),
         )
-        # نخرج بـ exit code 1 — Render سيُعيد التشغيل تلقائياً
         sys.exit(1)
