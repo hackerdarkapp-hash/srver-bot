@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: multi-bot-server
+    name: srver-bot
     runtime: python
     buildCommand: pip install -r bot/requirements.txt
     startCommand: cd bot && python bot.py
