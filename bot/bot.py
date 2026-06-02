@@ -30,7 +30,7 @@ from handlers import (
     nav_router, panel_router, start_router,
     usermgmt_router, wizard_router, tools_router,
 )
-from security import AntiSpamMiddleware
+from security import AntiSpamMiddleware, SafeHandlerMiddleware
 
 
 # ══════════════════════════════════════════════════════════════
@@ -238,6 +238,22 @@ async def polling_loop(bot: Bot, dp: Dispatcher, bot_label: str) -> None:
             await asyncio.sleep(delay)
             delay = min(delay * 2, MAX_DELAY)
 
+        except BaseException as e:
+            # SystemExit, KeyboardInterrupt, GeneratorExit ...
+            if isinstance(e, (KeyboardInterrupt, SystemExit)):
+                _active_bots[bot_label] = False
+                logger.info("[%s] 🛑 إيقاف بسبب %s", bot_label, type(e).__name__)
+                return
+            # أي BaseException أخرى: سجّل وأعد المحاولة
+            _active_bots[bot_label] = False
+            _reconnect_counts[bot_label] += 1
+            logger.critical(
+                "[%s] ☠️ BaseException [%s]: %s\n↩️ إعادة بعد %ds",
+                bot_label, type(e).__name__, str(e)[:100], delay,
+            )
+            await asyncio.sleep(delay)
+            delay = min(delay * 2, MAX_DELAY)
+
 
 # ══════════════════════════════════════════════════════════════
 #  بناء Dispatcher مشترك
@@ -249,8 +265,16 @@ def build_shared_dispatcher() -> Dispatcher:
     نفس الأوامر، نفس الأدمن، نفس قاعدة البيانات.
     """
     dp = Dispatcher(storage=MemoryStorage())
-    dp.message.middleware(AntiSpamMiddleware())
-    dp.callback_query.middleware(AntiSpamMiddleware())
+
+    # الطبقة الأولى: SafeHandlerMiddleware يلتقط أي خطأ في أي handler
+    safe = SafeHandlerMiddleware()
+    dp.message.outer_middleware(safe)
+    dp.callback_query.outer_middleware(safe)
+
+    # الطبقة الثانية: AntiSpamMiddleware للحماية من السبام
+    spam = AntiSpamMiddleware()
+    dp.message.middleware(spam)
+    dp.callback_query.middleware(spam)
 
     dp.include_router(tools_router)
     dp.include_router(panel_router)
@@ -290,6 +314,9 @@ async def main() -> None:
     # Dispatcher مشترك
     dp = build_shared_dispatcher()
 
+    # تسجيل global error handler مرة واحدة على الـ Dispatcher
+    dp.errors.register(make_error_handler("global"))
+
     # إنشاء بوت لكل توكن
     bots: list[tuple[Bot, str]] = []
     for idx, token in enumerate(tokens, start=1):
@@ -300,7 +327,6 @@ async def main() -> None:
             session=session,
             default=DefaultBotProperties(parse_mode=ParseMode.HTML),
         )
-        dp.errors.register(make_error_handler(bot_label))
         bots.append((bot, bot_label))
         logger.info("✅ [%s] تم إنشاؤه | token=...%s", bot_label, token[-6:])
 
@@ -336,9 +362,29 @@ async def main() -> None:
 #  نقطة الدخول
 # ══════════════════════════════════════════════════════════════
 
+def _asyncio_exception_handler(loop: asyncio.AbstractEventLoop, ctx: dict) -> None:
+    """
+    يلتقط استثناءات asyncio Tasks التي لم يُعالجها أحد.
+    يمنعها من إيقاف البوت ويُسجّلها فقط.
+    """
+    msg = ctx.get("message", "")
+    exc = ctx.get("exception")
+    if exc:
+        logger.error(
+            "⚡ asyncio unhandled: %s — %s\n%s",
+            type(exc).__name__, str(exc)[:120],
+            "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))[-400:],
+        )
+    else:
+        logger.error("⚡ asyncio unhandled: %s", msg)
+
+
 if __name__ == "__main__":
     try:
-        asyncio.run(main())
+        loop = asyncio.new_event_loop()
+        loop.set_exception_handler(_asyncio_exception_handler)
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(main())
     except KeyboardInterrupt:
         logger.info("🛑 إيقاف يدوي.")
     except Exception as e:
@@ -347,3 +393,8 @@ if __name__ == "__main__":
             type(e).__name__, traceback.format_exc(),
         )
         sys.exit(1)
+    finally:
+        try:
+            loop.close()
+        except Exception:
+            pass
