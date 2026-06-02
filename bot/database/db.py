@@ -16,9 +16,11 @@ os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
 
 
 def _conn() -> sqlite3.Connection:
-    c = sqlite3.connect(DB_PATH)
+    c = sqlite3.connect(DB_PATH, check_same_thread=False)
     c.row_factory = sqlite3.Row
     c.execute("PRAGMA foreign_keys = ON")
+    c.execute("PRAGMA journal_mode = WAL")   # كتابة متزامنة آمنة لعدة بوتات
+    c.execute("PRAGMA busy_timeout = 5000")  # انتظر 5 ث عند قفل القاعدة
     return c
 
 
