@@ -1,12 +1,16 @@
 """
 database/db.py — طبقة قاعدة البيانات الكاملة
 Buttons · Responses · Users · Settings · Tool Stats
+مُحصَّن: retry تلقائي عند قفل القاعدة + تسجيل الأخطاء
 """
 
 import sqlite3
 import logging
 import os
-from typing import Optional
+import time
+import functools
+import traceback
+from typing import Optional, Callable, TypeVar, Any
 
 from config import DB_PATH
 
@@ -14,13 +18,57 @@ logger = logging.getLogger(__name__)
 
 os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
 
+_F = TypeVar("_F", bound=Callable[..., Any])
+
+
+def _db_retry(max_attempts: int = 5, base_delay: float = 0.2) -> Callable[[_F], _F]:
+    """
+    Decorator: يُعيد المحاولة عند OperationalError (database is locked)
+    ويلتقط أي خطأ آخر ويُسجّله دون إيقاف البوت.
+    """
+    def decorator(fn: _F) -> _F:
+        @functools.wraps(fn)
+        def wrapper(*args, **kwargs):
+            last_exc = None
+            for attempt in range(1, max_attempts + 1):
+                try:
+                    return fn(*args, **kwargs)
+                except sqlite3.OperationalError as e:
+                    last_exc = e
+                    if "locked" in str(e).lower() and attempt < max_attempts:
+                        wait = base_delay * (2 ** (attempt - 1))
+                        logger.warning(
+                            "DB مقفل [%s] — محاولة %d/%d بعد %.1fث",
+                            fn.__name__, attempt, max_attempts, wait,
+                        )
+                        time.sleep(wait)
+                    else:
+                        logger.error(
+                            "DB OperationalError [%s]: %s", fn.__name__, e,
+                        )
+                        return None
+                except sqlite3.DatabaseError as e:
+                    logger.error("DB DatabaseError [%s]: %s", fn.__name__, e)
+                    return None
+                except Exception as e:
+                    logger.error(
+                        "DB خطأ غير متوقع [%s]: %s\n%s",
+                        fn.__name__, e, traceback.format_exc()[-300:],
+                    )
+                    return None
+            if last_exc:
+                logger.error("DB تجاوز الحد [%s]: %s", fn.__name__, last_exc)
+            return None
+        return wrapper  # type: ignore[return-value]
+    return decorator
+
 
 def _conn() -> sqlite3.Connection:
     c = sqlite3.connect(DB_PATH, check_same_thread=False)
     c.row_factory = sqlite3.Row
     c.execute("PRAGMA foreign_keys = ON")
     c.execute("PRAGMA journal_mode = WAL")   # كتابة متزامنة آمنة لعدة بوتات
-    c.execute("PRAGMA busy_timeout = 5000")  # انتظر 5 ث عند قفل القاعدة
+    c.execute("PRAGMA busy_timeout = 8000")  # انتظر 8 ث عند قفل القاعدة
     return c
 
 
