@@ -7,6 +7,37 @@ SESSION_SECRET = os.getenv("SESSION_SECRET", "tg-bot-secret")
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "data", "buttons.db")
 
+
+# ══════════════════════════════════════════════════════════════
+#  إعدادات تعدد البوتات
+# ══════════════════════════════════════════════════════════════
+
+def get_all_bot_tokens() -> list[str]:
+    """
+    يقرأ توكنات جميع البوتات من متغيرات البيئة.
+
+    BOT_TOKEN_1, BOT_TOKEN_2, BOT_TOKEN_3 ...
+    أو TELEGRAM_BOT_TOKEN_1, TELEGRAM_BOT_TOKEN_2 ...
+
+    إذا لم توجد متغيرات مرقمة يرجع إلى BOT_TOKEN / TELEGRAM_BOT_TOKEN الموحد.
+    جميع البوتات تشترك في نفس قاعدة البيانات والأدمن والإعدادات.
+    """
+    tokens: list[str] = []
+
+    i = 1
+    while True:
+        t = os.getenv(f"BOT_TOKEN_{i}", os.getenv(f"TELEGRAM_BOT_TOKEN_{i}", "")).strip()
+        if not t:
+            break
+        tokens.append(t)
+        i += 1
+
+    # الرجوع إلى التوكن الموحد إذا لم تُعرَّف متغيرات مرقمة
+    if not tokens and BOT_TOKEN:
+        tokens.append(BOT_TOKEN)
+
+    return tokens
+
 # حماية من السبام
 RATE_LIMIT_SECONDS = 1
 MAX_MSG_PER_MINUTE = 25
