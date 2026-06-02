@@ -1,13 +1,26 @@
 services:
   - type: web
-    name: bot-al-ikhtiraq
+    name: multi-bot-server
     runtime: python
-    buildCommand: pip install -r requirements.txt
+    buildCommand: pip install -r bot/requirements.txt
     startCommand: cd bot && python bot.py
     envVars:
-      - key: TELEGRAM_BOT_TOKEN
+      # ── البوت الأول ──────────────────────────────────────────
+      - key: BOT_TOKEN_1
         sync: false
+      # ── البوت الثاني ─────────────────────────────────────────
+      - key: BOT_TOKEN_2
+        sync: false
+      # ── البوت الثالث (أضف المزيد بنفس النمط) ────────────────
+      - key: BOT_TOKEN_3
+        sync: false
+      # ── إعدادات مشتركة لجميع البوتات ─────────────────────────
       - key: ADMIN_TELEGRAM_ID
         sync: false
       - key: SESSION_SECRET
+        sync: false
+      # ── النسخ الاحتياطي (اختياري) ───────────────────────────
+      - key: GITHUB_TOKEN
+        sync: false
+      - key: GITHUB_REPO
         sync: false
