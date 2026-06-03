@@ -12,27 +12,18 @@ from aiogram.types import (
 )
 
 import database as db
-from utils.keyboards import build_start_keyboard, build_children_keyboard
+from utils.keyboards import build_start_keyboard, build_children_keyboard, build_section_keyboard
 
 logger = logging.getLogger(__name__)
 router = Router()
 
-
-# ══════════════════════════════════════════════════════════════
-#  الأزرار غير القابلة للضغط (العناوين والفواصل)
-# ══════════════════════════════════════════════════════════════
 
 @router.callback_query(F.data.in_({"__noop__", "__sep__"}))
 async def cb_noop(cb: CallbackQuery) -> None:
     await cb.answer()
 
 
-# ══════════════════════════════════════════════════════════════
-#  دالة مساعدة: عرض/تحديث الصفحة الرئيسية
-# ══════════════════════════════════════════════════════════════
-
 async def _show_main(cb: CallbackQuery, state: FSMContext) -> None:
-    """عرض الصفحة الرئيسية الموحدة"""
     from config import DEFAULT_WELCOME
     await state.clear()
     welcome_tmpl = db.get_setting("welcome_message", DEFAULT_WELCOME)
@@ -48,19 +39,34 @@ async def _show_main(cb: CallbackQuery, state: FSMContext) -> None:
             logger.error("خطأ في عرض الصفحة الرئيسية: %s", e)
 
 
-# ══════════════════════════════════════════════════════════════
-#  زر الرجوع للقائمة الرئيسية (من الأدوات)
-# ══════════════════════════════════════════════════════════════
+@router.callback_query(F.data.in_({"section:free", "section:paid"}))
+async def cb_section(cb: CallbackQuery, state: FSMContext) -> None:
+    await cb.answer()
+    section = cb.data.split(":")[1]
+    kb      = build_section_keyboard(section)
+    title   = "🆓 الخدمات المجانية" if section == "free" else "💎 الخدمات المدفوعة"
+    try:
+        await cb.message.edit_text(
+            f"<b>{title}</b>\nاختر الخدمة التي تريدها:",
+            reply_markup=kb,
+            parse_mode="HTML",
+        )
+    except Exception:
+        try:
+            await cb.message.answer(
+                f"<b>{title}</b>\nاختر الخدمة التي تريدها:",
+                reply_markup=kb,
+                parse_mode="HTML",
+            )
+        except Exception as e:
+            logger.error("خطأ في عرض القسم %s: %s", section, e)
 
-@router.callback_query(F.data.in_({"tool:back_main", "section:free", "section:paid"}))
+
+@router.callback_query(F.data.in_({"tool:back_main", "back:main"}))
 async def cb_back_main(cb: CallbackQuery, state: FSMContext) -> None:
     await cb.answer()
     await _show_main(cb, state)
 
-
-# ══════════════════════════════════════════════════════════════
-#  زر الرجوع
-# ══════════════════════════════════════════════════════════════
 
 @router.callback_query(F.data.startswith("back:"))
 async def cb_back(cb: CallbackQuery, state: FSMContext) -> None:
@@ -69,6 +75,23 @@ async def cb_back(cb: CallbackQuery, state: FSMContext) -> None:
 
     if target in ("main", "0"):
         await _show_main(cb, state)
+        return
+
+    if target in ("free", "paid"):
+        kb    = build_section_keyboard(target)
+        title = "🆓 الخدمات المجانية" if target == "free" else "💎 الخدمات المدفوعة"
+        try:
+            await cb.message.edit_text(
+                f"<b>{title}</b>\nاختر الخدمة التي تريدها:",
+                reply_markup=kb,
+                parse_mode="HTML",
+            )
+        except Exception:
+            await cb.message.answer(
+                f"<b>{title}</b>\nاختر الخدمة التي تريدها:",
+                reply_markup=kb,
+                parse_mode="HTML",
+            )
         return
 
     await state.clear()
@@ -97,10 +120,6 @@ async def cb_back(cb: CallbackQuery, state: FSMContext) -> None:
         except Exception as e:
             logger.error("خطأ في زر الرجوع: %s", e)
 
-
-# ══════════════════════════════════════════════════════════════
-#  الضغط على زر nav:{id} — الأزرار الديناميكية
-# ══════════════════════════════════════════════════════════════
 
 @router.callback_query(F.data.startswith("nav:"))
 async def cb_navigate(cb: CallbackQuery, state: FSMContext) -> None:
@@ -168,7 +187,6 @@ async def _send_response(message: Message, resp: dict) -> None:
     caption = resp.get("caption") or ""
     url     = resp.get("url") or ""
     pm      = resp.get("parse_mode") or "HTML"
-    redir   = resp.get("redirect_to")
 
     try:
         if rtype == "text":
@@ -198,11 +216,13 @@ async def _send_response(message: Message, resp: dict) -> None:
                 InlineKeyboardButton(text="🌐 فتح التطبيق", web_app=WebAppInfo(url=url))
             ]])
             await message.answer(text or "اضغط لفتح التطبيق:", reply_markup=kb, parse_mode=pm)
-        elif rtype == "redirect" and redir:
-            target = db.get_button(redir)
-            if target:
-                target_resp = db.get_response(redir)
-                if target_resp and target_resp["response_type"] != "none":
-                    await _send_response(message, target_resp)
+        elif rtype == "redirect":
+            redir = resp.get("redirect_to")
+            if redir:
+                target = db.get_button(redir)
+                if target:
+                    target_resp = db.get_response(redir)
+                    if target_resp and target_resp["response_type"] != "none":
+                        await _send_response(message, target_resp)
     except Exception as e:
         logger.error("خطأ في إرسال الرد: %s", e)
