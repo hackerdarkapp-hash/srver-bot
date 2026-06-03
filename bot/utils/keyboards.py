@@ -11,35 +11,46 @@ def _developer_row() -> list[InlineKeyboardButton]:
 
 
 def build_start_keyboard() -> InlineKeyboardMarkup:
+    """القائمة الرئيسية — زرّا الأقسام فقط"""
     all_roots = db.get_children(None)
-    free_btns = [b for b in all_roots if b["section"] == "free"]
-    paid_btns = [b for b in all_roots if b["section"] == "paid"]
+    has_free = any(b["section"] == "free" for b in all_roots)
+    has_paid = any(b["section"] == "paid" for b in all_roots)
 
     rows: list[list[InlineKeyboardButton]] = []
 
+    # زرّا القسمين — قابلان للضغط
     rows.append([
-        InlineKeyboardButton(text="🆓 الخدمات المجانية", callback_data="__noop__"),
-        InlineKeyboardButton(text="💎 الخدمات المدفوعة", callback_data="__noop__"),
+        InlineKeyboardButton(
+            text="🆓 الخدمات المجانية",
+            callback_data="section:free",
+        ),
+        InlineKeyboardButton(
+            text="💎 الخدمات المدفوعة",
+            callback_data="section:paid",
+        ),
     ])
 
-    max_len = max(len(free_btns), len(paid_btns), 1)
-    for i in range(max_len):
-        row: list[InlineKeyboardButton] = []
+    rows.append(_developer_row())
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
-        if i < len(free_btns):
-            row.extend(_btn_row(free_btns[i]))
-        else:
-            row.append(InlineKeyboardButton(text="　", callback_data="__noop__"))
 
-        if i < len(paid_btns):
-            row.extend(_btn_row(paid_btns[i]))
-        elif i == 0 and not paid_btns:
-            row.append(InlineKeyboardButton(text="— قريباً —", callback_data="__noop__"))
-        else:
-            row.append(InlineKeyboardButton(text="　", callback_data="__noop__"))
+def build_section_keyboard(section: str) -> InlineKeyboardMarkup:
+    """قائمة خدمات قسم معين (مجانية أو مدفوعة)"""
+    all_roots = db.get_children(None)
+    btns = [b for b in all_roots if b["section"] == section]
 
-        rows.append(row)
+    rows: list[list[InlineKeyboardButton]] = []
 
+    title = "🆓 الخدمات المجانية" if section == "free" else "💎 الخدمات المدفوعة"
+    rows.append([InlineKeyboardButton(text=f"── {title} ──", callback_data="__noop__")])
+
+    if btns:
+        for btn in btns:
+            rows.append(_btn_row(btn))
+    else:
+        rows.append([InlineKeyboardButton(text="— لا توجد خدمات حالياً —", callback_data="__noop__")])
+
+    rows.append([InlineKeyboardButton(text="◀️ رجوع للقائمة الرئيسية", callback_data="back:main")])
     rows.append(_developer_row())
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -56,7 +67,7 @@ def build_children_keyboard(
         rows.append(_btn_row(btn))
 
     if parent_parent_id is None:
-        back_cb = "back:main"
+        back_cb = f"section:{section}"
     else:
         back_cb = f"back:{parent_parent_id}"
 
@@ -94,10 +105,12 @@ def admin_panel_keyboard() -> InlineKeyboardMarkup:
 
 
 def _btn_row(btn: dict) -> list[InlineKeyboardButton]:
+    """بناء صف زر واحد — يتعامل مع جميع أنواع الأزرار"""
     tool_id = btn.get("tool_id")
     if tool_id:
         return [InlineKeyboardButton(text=btn["label"], callback_data=f"tool:{tool_id}")]
     resp = db.get_response(btn["id"])
     if resp and resp["response_type"] == "webapp" and resp.get("url"):
+        # WebApp buttons تحتاج صف خاص بها
         return [InlineKeyboardButton(text=btn["label"], web_app=WebAppInfo(url=resp["url"]))]
     return [InlineKeyboardButton(text=btn["label"], callback_data=f"nav:{btn['id']}")]
