@@ -78,7 +78,7 @@ async def _health(req: aio_web.Request) -> aio_web.Response:
 
 async def start_http_server(port: int) -> None:
     app = aio_web.Application()
-    for p in ("/", "/healthz", "/health", "/ping"):
+    for p in ("/", "/healthz", "/health", "/ping", "/status"):
         app.router.add_get(p, _health)
     runner = aio_web.AppRunner(app)
     await runner.setup()
