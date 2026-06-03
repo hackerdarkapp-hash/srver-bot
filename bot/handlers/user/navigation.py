@@ -12,7 +12,7 @@ from aiogram.types import (
 )
 
 import database as db
-from utils.keyboards import build_start_keyboard, build_children_keyboard, build_section_keyboard
+from utils.keyboards import build_start_keyboard, build_children_keyboard
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -39,30 +39,7 @@ async def _show_main(cb: CallbackQuery, state: FSMContext) -> None:
             logger.error("خطأ في عرض الصفحة الرئيسية: %s", e)
 
 
-@router.callback_query(F.data.in_({"section:free", "section:paid"}))
-async def cb_section(cb: CallbackQuery, state: FSMContext) -> None:
-    await cb.answer()
-    section = cb.data.split(":")[1]
-    kb      = build_section_keyboard(section)
-    title   = "🆓 الخدمات المجانية" if section == "free" else "💎 الخدمات المدفوعة"
-    try:
-        await cb.message.edit_text(
-            f"<b>{title}</b>\nاختر الخدمة التي تريدها:",
-            reply_markup=kb,
-            parse_mode="HTML",
-        )
-    except Exception:
-        try:
-            await cb.message.answer(
-                f"<b>{title}</b>\nاختر الخدمة التي تريدها:",
-                reply_markup=kb,
-                parse_mode="HTML",
-            )
-        except Exception as e:
-            logger.error("خطأ في عرض القسم %s: %s", section, e)
-
-
-@router.callback_query(F.data.in_({"tool:back_main", "back:main"}))
+@router.callback_query(F.data.in_({"tool:back_main", "section:free", "section:paid"}))
 async def cb_back_main(cb: CallbackQuery, state: FSMContext) -> None:
     await cb.answer()
     await _show_main(cb, state)
@@ -75,23 +52,6 @@ async def cb_back(cb: CallbackQuery, state: FSMContext) -> None:
 
     if target in ("main", "0"):
         await _show_main(cb, state)
-        return
-
-    if target in ("free", "paid"):
-        kb    = build_section_keyboard(target)
-        title = "🆓 الخدمات المجانية" if target == "free" else "💎 الخدمات المدفوعة"
-        try:
-            await cb.message.edit_text(
-                f"<b>{title}</b>\nاختر الخدمة التي تريدها:",
-                reply_markup=kb,
-                parse_mode="HTML",
-            )
-        except Exception:
-            await cb.message.answer(
-                f"<b>{title}</b>\nاختر الخدمة التي تريدها:",
-                reply_markup=kb,
-                parse_mode="HTML",
-            )
         return
 
     await state.clear()
