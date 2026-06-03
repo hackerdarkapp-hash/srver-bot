@@ -183,13 +183,20 @@ def make_error_handler(bot_label: str):
 # ══════════════════════════════════════════════════════════════
 
 async def polling_loop(bot: Bot, dp: Dispatcher, bot_label: str) -> None:
+    """
+    Long-polling يدوي لكل بوت على حدة.
+    يستخدم bot.get_updates() + dp.feed_update() بدلاً من dp.start_polling()
+    لأن dp.start_polling() لا يدعم استدعاءات متعددة متزامنة على نفس الـ Dispatcher.
+    """
     _active_bots[bot_label] = False
     _reconnect_counts[bot_label] = 0
 
     INIT_DELAY = 3
     MAX_DELAY  = 120
     delay      = INIT_DELAY
-    first_run  = True
+    offset: int = 0
+    first_run   = True
+    allowed: list[str] | None = None
 
     while True:
         _active_bots[bot_label] = False
@@ -198,15 +205,22 @@ async def polling_loop(bot: Bot, dp: Dispatcher, bot_label: str) -> None:
                         bot_label, _reconnect_counts[bot_label] + 1)
             await bot.delete_webhook(drop_pending_updates=first_run)
             first_run = False
+            if allowed is None:
+                allowed = dp.resolve_used_update_types()
             _active_bots[bot_label] = True
             delay = INIT_DELAY
 
-            await dp.start_polling(
-                bot,
-                allowed_updates=dp.resolve_used_update_types(),
-                handle_signals=False,
-                polling_timeout=30,
-            )
+            # ── حلقة long-polling مستقلة لهذا البوت ──
+            while True:
+                updates = await bot.get_updates(
+                    offset=offset,
+                    timeout=30,
+                    allowed_updates=allowed,
+                )
+                for update in updates:
+                    # feed_update يضع Bot الصحيح في السياق لكل update
+                    asyncio.create_task(dp.feed_update(bot=bot, update=update))
+                    offset = update.update_id + 1
 
         except TelegramRetryAfter as e:
             _active_bots[bot_label] = False
@@ -239,12 +253,10 @@ async def polling_loop(bot: Bot, dp: Dispatcher, bot_label: str) -> None:
             delay = min(delay * 2, MAX_DELAY)
 
         except BaseException as e:
-            # SystemExit, KeyboardInterrupt, GeneratorExit ...
             if isinstance(e, (KeyboardInterrupt, SystemExit)):
                 _active_bots[bot_label] = False
                 logger.info("[%s] 🛑 إيقاف بسبب %s", bot_label, type(e).__name__)
                 return
-            # أي BaseException أخرى: سجّل وأعد المحاولة
             _active_bots[bot_label] = False
             _reconnect_counts[bot_label] += 1
             logger.critical(
