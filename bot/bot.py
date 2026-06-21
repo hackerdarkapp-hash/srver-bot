@@ -205,8 +205,14 @@ async def polling_loop(bot: Bot, dp: Dispatcher, bot_label: str) -> None:
                         bot_label, _reconnect_counts[bot_label] + 1)
             await bot.delete_webhook(drop_pending_updates=first_run)
             first_run = False
-            if allowed is None:
-                allowed = dp.resolve_used_update_types()
+            # تحديد صريح لجميع أنواع التحديثات — يشمل رسائل المجموعات والقنوات
+            allowed = [
+                "message",
+                "edited_message",
+                "callback_query",
+                "my_chat_member",
+                "chat_member",
+            ]
             _active_bots[bot_label] = True
             delay = INIT_DELAY
 
