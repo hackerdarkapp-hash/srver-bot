@@ -1,5 +1,5 @@
 """
-handlers/user/start.py — معالج /start (يعمل في المحادثات الخاصة والمجموعات بنفس الطريقة)
+handlers/user/start.py — معالج /start (يعمل في المحادثات الخاصة والمجموعات)
 """
 
 import logging
@@ -18,6 +18,8 @@ router = Router()
 @router.message(CommandStart())
 async def cmd_start(message: Message) -> None:
     user = message.from_user
+    chat_type = message.chat.type
+
     is_new = db.save_user(
         user_id    = user.id,
         username   = user.username,
@@ -26,7 +28,7 @@ async def cmd_start(message: Message) -> None:
     )
     if is_new:
         logger.info("مستخدم جديد: id=%s @%s chat_type=%s",
-                    user.id, user.username, message.chat.type)
+                    user.id, user.username, chat_type)
 
     welcome_tmpl = db.get_setting("welcome_message", DEFAULT_WELCOME)
     name         = user.first_name or "زائر"
@@ -34,6 +36,6 @@ async def cmd_start(message: Message) -> None:
 
     await message.answer(
         welcome_text,
-        reply_markup=build_start_keyboard(),
+        reply_markup=build_start_keyboard(chat_type=chat_type),
         parse_mode="HTML",
     )
