@@ -18,6 +18,13 @@ logger = logging.getLogger(__name__)
 router = Router()
 
 
+def _chat_type(cb: CallbackQuery) -> str:
+    try:
+        return cb.message.chat.type if cb.message else "private"
+    except Exception:
+        return "private"
+
+
 @router.callback_query(F.data.in_({"__noop__", "__sep__"}))
 async def cb_noop(cb: CallbackQuery) -> None:
     await cb.answer()
@@ -29,7 +36,8 @@ async def _show_main(cb: CallbackQuery, state: FSMContext) -> None:
     welcome_tmpl = db.get_setting("welcome_message", DEFAULT_WELCOME)
     name         = cb.from_user.first_name or "زائر"
     text         = welcome_tmpl.replace("{name}", name)
-    kb           = build_start_keyboard()
+    chat_type    = _chat_type(cb)
+    kb           = build_start_keyboard(chat_type=chat_type)
     try:
         await cb.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
     except Exception:
@@ -66,8 +74,9 @@ async def cb_back(cb: CallbackQuery, state: FSMContext) -> None:
         await _show_main(cb, state)
         return
 
-    section  = btn.get("section", "free")
-    keyboard = build_children_keyboard(parent_id, btn.get("parent_id"), section)
+    section   = btn.get("section", "free")
+    chat_type = _chat_type(cb)
+    keyboard  = build_children_keyboard(parent_id, btn.get("parent_id"), section, chat_type)
     try:
         await cb.message.edit_reply_markup(reply_markup=keyboard)
     except Exception:
@@ -99,16 +108,17 @@ async def cb_navigate(cb: CallbackQuery, state: FSMContext) -> None:
 
 
 async def _execute_button(cb: CallbackQuery, btn_id: int, btn: dict) -> None:
+    chat_type = _chat_type(cb)
     try:
         resp     = db.get_response(btn_id)
         children = db.get_children(btn_id)
         section  = btn.get("section", "free")
 
         if resp and resp["response_type"] != "none":
-            await _send_response(cb.message, resp)
+            await _send_response(cb.message, resp, chat_type)
 
         if children:
-            keyboard = build_children_keyboard(btn_id, btn.get("parent_id"), section)
+            keyboard = build_children_keyboard(btn_id, btn.get("parent_id"), section, chat_type)
             label    = btn["label"]
             if resp and resp["response_type"] != "none":
                 await cb.message.answer(
@@ -140,7 +150,7 @@ async def _execute_button(cb: CallbackQuery, btn_id: int, btn: dict) -> None:
             pass
 
 
-async def _send_response(message: Message, resp: dict) -> None:
+async def _send_response(message: Message, resp: dict, chat_type: str = "private") -> None:
     rtype   = resp["response_type"]
     text    = resp.get("text_content") or ""
     file_id = resp.get("file_id")
@@ -172,9 +182,14 @@ async def _send_response(message: Message, resp: dict) -> None:
             ]])
             await message.answer(text or "اضغط لفتح الرابط:", reply_markup=kb, parse_mode=pm)
         elif rtype == "webapp" and url:
-            kb = InlineKeyboardMarkup(inline_keyboard=[[
-                InlineKeyboardButton(text="🌐 فتح التطبيق", web_app=WebAppInfo(url=url))
-            ]])
+            if chat_type == "private":
+                kb = InlineKeyboardMarkup(inline_keyboard=[[
+                    InlineKeyboardButton(text="🌐 فتح التطبيق", web_app=WebAppInfo(url=url))
+                ]])
+            else:
+                kb = InlineKeyboardMarkup(inline_keyboard=[[
+                    InlineKeyboardButton(text="🌐 فتح التطبيق", url=url)
+                ]])
             await message.answer(text or "اضغط لفتح التطبيق:", reply_markup=kb, parse_mode=pm)
         elif rtype == "redirect":
             redir = resp.get("redirect_to")
@@ -183,6 +198,6 @@ async def _send_response(message: Message, resp: dict) -> None:
                 if target:
                     target_resp = db.get_response(redir)
                     if target_resp and target_resp["response_type"] != "none":
-                        await _send_response(message, target_resp)
+                        await _send_response(message, target_resp, chat_type)
     except Exception as e:
         logger.error("خطأ في إرسال الرد: %s", e)
