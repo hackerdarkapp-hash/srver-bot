@@ -10,7 +10,21 @@ def _developer_row() -> list[InlineKeyboardButton]:
     return [InlineKeyboardButton(text="👨‍💻 المطور", url=DEVELOPER_URL)]
 
 
-def build_start_keyboard() -> InlineKeyboardMarkup:
+def _btn_row(btn: dict, chat_type: str = "private") -> list[InlineKeyboardButton]:
+    tool_id = btn.get("tool_id")
+    if tool_id:
+        return [InlineKeyboardButton(text=btn["label"], callback_data=f"tool:{tool_id}")]
+    resp = db.get_response(btn["id"])
+    if resp and resp["response_type"] == "webapp" and resp.get("url"):
+        url = resp["url"]
+        if chat_type == "private":
+            return [InlineKeyboardButton(text=btn["label"], web_app=WebAppInfo(url=url))]
+        else:
+            return [InlineKeyboardButton(text=btn["label"], url=url)]
+    return [InlineKeyboardButton(text=btn["label"], callback_data=f"nav:{btn['id']}")]
+
+
+def build_start_keyboard(chat_type: str = "private") -> InlineKeyboardMarkup:
     all_roots = db.get_children(None)
     free_btns = [b for b in all_roots if b["section"] == "free"]
     paid_btns = [b for b in all_roots if b["section"] == "paid"]
@@ -27,12 +41,12 @@ def build_start_keyboard() -> InlineKeyboardMarkup:
         row: list[InlineKeyboardButton] = []
 
         if i < len(free_btns):
-            row.extend(_btn_row(free_btns[i]))
+            row.extend(_btn_row(free_btns[i], chat_type))
         else:
             row.append(InlineKeyboardButton(text="　", callback_data="__noop__"))
 
         if i < len(paid_btns):
-            row.extend(_btn_row(paid_btns[i]))
+            row.extend(_btn_row(paid_btns[i], chat_type))
         elif i == 0 and not paid_btns:
             row.append(InlineKeyboardButton(text="— قريباً —", callback_data="__noop__"))
         else:
@@ -48,12 +62,13 @@ def build_children_keyboard(
     parent_id: int,
     parent_parent_id,
     section: str = "free",
+    chat_type: str = "private",
 ) -> InlineKeyboardMarkup:
     children = db.get_children(parent_id)
     rows: list[list[InlineKeyboardButton]] = []
 
     for btn in children:
-        rows.append(_btn_row(btn))
+        rows.append(_btn_row(btn, chat_type))
 
     if parent_parent_id is None:
         back_cb = "back:main"
@@ -91,13 +106,3 @@ def admin_panel_keyboard() -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="💾 نسخ احتياطي", callback_data="ap:backup"),
         ],
     ])
-
-
-def _btn_row(btn: dict) -> list[InlineKeyboardButton]:
-    tool_id = btn.get("tool_id")
-    if tool_id:
-        return [InlineKeyboardButton(text=btn["label"], callback_data=f"tool:{tool_id}")]
-    resp = db.get_response(btn["id"])
-    if resp and resp["response_type"] == "webapp" and resp.get("url"):
-        return [InlineKeyboardButton(text=btn["label"], web_app=WebAppInfo(url=resp["url"]))]
-    return [InlineKeyboardButton(text=btn["label"], callback_data=f"nav:{btn['id']}")]
