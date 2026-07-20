@@ -1,26 +1,22 @@
 """
-    utils/bot_registry.py — سجل مركزي لجميع نسخ البوت
-    يُستخدم للإرسال الجماعي عبر جميع البوتات المُشغَّلة
-    """
+utils/bot_registry.py
+سجل مركزي لجميع نسخ Bot المُنشأة عند التشغيل.
+يُستخدم للإرسال الجماعي عبر جميع البوتات المُشغَّلة
+"""
 
-    from aiogram import Bot
+from aiogram import Bot
 
-    # قائمة جميع نسخ البوت المُشغَّلة
-    _ALL_BOTS: list[Bot] = []
-
-
-    def register_bot(bot: Bot) -> None:
-      """تسجيل نسخة بوت جديدة في السجل."""
-      if bot not in _ALL_BOTS:
-          _ALL_BOTS.append(bot)
+_ALL_BOTS: list[Bot] = []
 
 
-    def get_all_bots() -> list[Bot]:
-      """إرجاع جميع نسخ البوت المسجلة."""
-      return list(_ALL_BOTS)
+def register_bot(bot: Bot) -> None:
+    if bot not in _ALL_BOTS:
+        _ALL_BOTS.append(bot)
 
 
-    def clear_registry() -> None:
-      """مسح السجل (يُستخدم عند إعادة التشغيل)."""
-      _ALL_BOTS.clear()
-    
+def get_all_bots() -> list[Bot]:
+    return list(_ALL_BOTS)
+
+
+def clear_registry() -> None:
+    _ALL_BOTS.clear()
