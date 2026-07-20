@@ -7,7 +7,7 @@ DEVELOPER_URL = "https://t.me/OX_U1"
 
 
 def _developer_row() -> list[InlineKeyboardButton]:
-    return [InlineKeyboardButton(text="👨‍💻 المطور", url=DEVELOPER_URL)]
+    return [InlineKeyboardButton(text="🆘 طلب المساعده", url=DEVELOPER_URL)]
 
 
 def _btn_row(btn: dict, chat_type: str = "private") -> list[InlineKeyboardButton]:
