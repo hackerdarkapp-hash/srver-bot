@@ -7,7 +7,10 @@ DEVELOPER_URL = "https://t.me/OX_U1"
 
 
 def _developer_row() -> list[InlineKeyboardButton]:
-    return [InlineKeyboardButton(text="🆘 طلب المساعده", url=DEVELOPER_URL)]
+    return [
+        InlineKeyboardButton(text="🆘 طلب المساعده", url=DEVELOPER_URL),
+        InlineKeyboardButton(text="💬 تواصل معنا", callback_data="support:start"),
+    ]
 
 
 def _btn_row(btn: dict, chat_type: str = "private") -> list[InlineKeyboardButton]:
@@ -103,6 +106,7 @@ def admin_panel_keyboard() -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="⚙️ الإعدادات", callback_data="ap:settings"),
         ],
         [
-            InlineKeyboardButton(text="💾 نسخ احتياطي", callback_data="ap:backup"),
+            InlineKeyboardButton(text="📢 رسالة جماعية", callback_data="ap:broadcast"),
+            InlineKeyboardButton(text="💾 نسخ احتياطي",  callback_data="ap:backup"),
         ],
     ])

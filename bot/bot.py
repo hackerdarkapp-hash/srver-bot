@@ -31,6 +31,7 @@ from config import ADMIN_ID, SESSION_SECRET, DEFAULT_FREE_TOOLS, get_all_bot_tok
 from handlers import (
     nav_router, panel_router, start_router,
     usermgmt_router, wizard_router, tools_router,
+    broadcast_router, support_router,
 )
 from security import AntiSpamMiddleware, SafeHandlerMiddleware
 
@@ -341,9 +342,11 @@ def build_shared_dispatcher() -> Dispatcher:
     dp.callback_query.middleware(spam)
 
     dp.include_router(tools_router)
+    dp.include_router(broadcast_router)
     dp.include_router(panel_router)
     dp.include_router(wizard_router)
     dp.include_router(usermgmt_router)
+    dp.include_router(support_router)
     dp.include_router(nav_router)
     dp.include_router(start_router)
 

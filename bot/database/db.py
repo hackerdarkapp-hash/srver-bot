@@ -358,6 +358,15 @@ def get_user(user_id: int) -> Optional[dict]:
         return dict(row) if row else None
 
 
+def get_all_active_user_ids() -> list[int]:
+    """كل المستخدمين غير المحظورين للإرسال الجماعي."""
+    with _conn() as c:
+        rows = c.execute(
+            "SELECT user_id FROM users WHERE is_blocked=0"
+        ).fetchall()
+        return [r[0] for r in rows]
+
+
 def get_all_users(page: int = 0, per_page: int = 10) -> list[dict]:
     with _conn() as c:
         rows = c.execute(
