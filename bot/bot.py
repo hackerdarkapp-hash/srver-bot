@@ -28,6 +28,7 @@ from aiogram.types import BotCommand, BotCommandScopeChat, BotCommandScopeDefaul
 
 import database as db
 from config import ADMIN_ID, SESSION_SECRET, DEFAULT_FREE_TOOLS, get_all_bot_tokens
+from utils.bot_registry import register_bot, clear_registry
 from handlers import (
     nav_router, panel_router, start_router,
     usermgmt_router, wizard_router, tools_router,
@@ -375,6 +376,7 @@ async def main() -> None:
     logger.info("🤖 عدد البوتات: %d | الوضع: %s", len(tokens), mode)
     logger.info("=" * 60)
 
+    clear_registry()  # مسح السجل عند كل إعادة تشغيل
     db.init_db()
     db.seed_default_tools(DEFAULT_FREE_TOOLS)
     db.seed_from_file()
@@ -393,6 +395,7 @@ async def main() -> None:
             default=DefaultBotProperties(parse_mode=ParseMode.HTML),
         )
         bots.append((bot, bot_label))
+        register_bot(bot)  # تسجيل في السجل المركزي
         logger.info("✅ [%s] تم إنشاؤه | token=...%s", bot_label, token[-6:])
 
     for bot, bot_label in bots:
