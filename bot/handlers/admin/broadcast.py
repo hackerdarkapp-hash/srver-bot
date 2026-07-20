@@ -156,10 +156,9 @@ async def cb_reply_start(cb: CallbackQuery, state: FSMContext) -> None:
     )
 
 
-@router.message(lambda m: True)
+# ✅ مهم: فقط الأدمن — لا يبلع رسائل المستخدمين العاديين
+@router.message(lambda m: m.from_user and m.from_user.id == ADMIN_ID)
 async def admin_fwd_reply(message: Message, state: FSMContext, bot: Bot) -> None:
-    if not is_admin(message.from_user.id):
-        return
     data = await state.get_data()
     target = data.get("reply_target")
     if not target:
