@@ -253,25 +253,6 @@
     }
   },
   {
-    "id": 20,
-    "parent_id": null,
-    "label": "اختراق واتساب",
-    "section": "paid",
-    "is_active": 1,
-    "position": 19,
-    "description": "",
-    "tool_id": null,
-    "response": {
-      "response_type": "photo",
-      "text_content": null,
-      "file_id": "AgACAgQAAxkBAAIDImpeHqmy98lpZCCI8lME2frYfDg6AAKGDWsboaTwUrw6xSivU4ZiAQADAgADdwADPQQ",
-      "file_type": "photo",
-      "url": null,
-      "caption": null,
-      "parse_mode": "HTML"
-    }
-  },
-  {
     "id": 21,
     "parent_id": 17,
     "label": "طلب التطبيق",
