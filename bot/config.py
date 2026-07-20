@@ -1,5 +1,10 @@
 """config.py — ثوابت الإعداد المركزية"""
 import os
+from dotenv import load_dotenv
+
+# تحميل .env تلقائياً عند التشغيل المحلي
+# في Render/Cloud يُتجاهل إذا لم يوجد الملف
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), ".env"), override=False)
 
 BOT_TOKEN      = os.getenv("TELEGRAM_BOT_TOKEN", os.getenv("BOT_TOKEN", ""))
 ADMIN_ID       = int(os.getenv("ADMIN_TELEGRAM_ID", os.getenv("ADMIN_ID", "0")))
