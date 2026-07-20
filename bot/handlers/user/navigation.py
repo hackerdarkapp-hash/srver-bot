@@ -80,8 +80,10 @@
       except Exception:
           try:
               await cb.message.answer(
-                  f"📂 <b>{btn['label']}</b>\nاختر من القائمة:",
-                  reply_markup=keyboard, parse_mode="HTML",
+                  f"📂 <b>{btn['label']}</b>
+اختر من القائمة:",
+                  reply_markup=keyboard,
+                  parse_mode="HTML",
               )
           except Exception as e:
               logger.error("خطأ في زر الرجوع: %s", e)
@@ -107,7 +109,7 @@
       extra_kb: Optional[InlineKeyboardMarkup] = None,
     ) -> InlineKeyboardMarkup:
       """يبني لوحة مفاتيح تحتوي على زر الرجوع (وأزرار إضافية إن وُجدت)."""
-      back_row = [InlineKeyboardButton(text="◀️ رجوع", callback_data=back_data)]
+      back_row = [InlineKeyboardButton(text="◄️ رجوع", callback_data=back_data)]
       rows = list(extra_kb.inline_keyboard) if extra_kb else []
       rows.append(back_row)
       return InlineKeyboardMarkup(inline_keyboard=rows)
@@ -152,28 +154,21 @@
       url     = resp.get("url") or ""
       pm      = resp.get("parse_mode") or "HTML"
       kb      = _parse_inline_buttons(resp.get("inline_buttons"))
-
-      # إضافة زر الرجوع أسفل المحتوى
       if back_data:
           kb = _build_back_keyboard(back_data, kb)
-
       try:
           if rtype == "text":
               await message.answer(text, reply_markup=kb, parse_mode=pm)
           elif rtype == "photo":
               src = file_id or url
               if src:
-                  await message.answer_photo(src, caption=caption or text,
-                                             reply_markup=kb, parse_mode=pm)
+                  await message.answer_photo(src, caption=caption or text, reply_markup=kb, parse_mode=pm)
           elif rtype == "video" and file_id:
-              await message.answer_video(file_id, caption=caption or text,
-                                         reply_markup=kb, parse_mode=pm)
+              await message.answer_video(file_id, caption=caption or text, reply_markup=kb, parse_mode=pm)
           elif rtype == "file" and file_id:
-              await message.answer_document(file_id, caption=caption or text,
-                                            reply_markup=kb, parse_mode=pm)
+              await message.answer_document(file_id, caption=caption or text, reply_markup=kb, parse_mode=pm)
           elif rtype == "audio" and file_id:
-              await message.answer_audio(file_id, caption=caption or text,
-                                         reply_markup=kb, parse_mode=pm)
+              await message.answer_audio(file_id, caption=caption or text, reply_markup=kb, parse_mode=pm)
           elif rtype in ("url_link", "tg_link"):
               pass
           elif rtype == "webapp" and url:
@@ -201,39 +196,37 @@
     async def _execute_button(cb: CallbackQuery, btn_id: int, btn: dict) -> None:
       chat_type = _chat_type(cb)
       try:
-          resp     = db.get_response(btn_id)
-          children = db.get_children(btn_id)
-          section  = btn.get("section", "free")
-
-          # حساب بيانات زر الرجوع
+          resp      = db.get_response(btn_id)
+          children  = db.get_children(btn_id)
+          section   = btn.get("section", "free")
           parent_id = btn.get("parent_id")
           back_data = f"back:{parent_id}" if parent_id else "tool:back_main"
-
           if resp and resp["response_type"] != "none":
               await _send_response(cb.message, resp, chat_type, back_data=back_data)
-
           if children:
               keyboard = build_children_keyboard(btn_id, btn.get("parent_id"), section, chat_type)
               label    = btn["label"]
               if resp and resp["response_type"] != "none":
                   await cb.message.answer(
-                      f"📂 <b>{label}</b>\nاختر من القائمة:",
+                      f"📂 <b>{label}</b>
+اختر من القائمة:",
                       reply_markup=keyboard, parse_mode="HTML",
                   )
               else:
                   try:
                       await cb.message.edit_text(
-                          f"📂 <b>{label}</b>\nاختر من القائمة:",
+                          f"📂 <b>{label}</b>
+اختر من القائمة:",
                           reply_markup=keyboard, parse_mode="HTML",
                       )
                   except Exception:
                       await cb.message.answer(
-                          f"📂 <b>{label}</b>\nاختر من القائمة:",
+                          f"📂 <b>{label}</b>
+اختر من القائمة:",
                           reply_markup=keyboard, parse_mode="HTML",
                       )
           elif not resp or resp["response_type"] == "none":
               await cb.answer("⚠️ لا يوجد محتوى لهذا الزر.", show_alert=True)
-
       except Exception as e:
           logger.error("خطأ في تنفيذ الزر btn_id=%s: %s", btn_id, e)
     
