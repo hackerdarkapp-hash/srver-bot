@@ -395,7 +395,7 @@ async def main() -> None:
             default=DefaultBotProperties(parse_mode=ParseMode.HTML),
         )
         bots.append((bot, bot_label))
-        register_bot(bot)  # تسجيل في السجل المركزي
+        register_bot(bot)  # تسجيل في السجل المركزي للإرسال الجماعي
         logger.info("✅ [%s] تم إنشاؤه | token=...%s", bot_label, token[-6:])
 
     for bot, bot_label in bots:
