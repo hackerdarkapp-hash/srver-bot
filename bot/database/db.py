@@ -96,19 +96,25 @@ def init_db() -> None:
 
         c.execute("""
             CREATE TABLE IF NOT EXISTS button_responses (
-                id            INTEGER PRIMARY KEY AUTOINCREMENT,
-                button_id     INTEGER NOT NULL UNIQUE
-                              REFERENCES buttons(id) ON DELETE CASCADE,
-                response_type TEXT    NOT NULL DEFAULT 'none',
-                text_content  TEXT,
-                file_id       TEXT,
-                file_type     TEXT,
-                url           TEXT,
-                caption       TEXT,
-                redirect_to   INTEGER REFERENCES buttons(id),
-                parse_mode    TEXT DEFAULT 'HTML'
+                id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                button_id      INTEGER NOT NULL UNIQUE
+                               REFERENCES buttons(id) ON DELETE CASCADE,
+                response_type  TEXT    NOT NULL DEFAULT 'none',
+                text_content   TEXT,
+                file_id        TEXT,
+                file_type      TEXT,
+                url            TEXT,
+                caption        TEXT,
+                redirect_to    INTEGER REFERENCES buttons(id),
+                parse_mode     TEXT DEFAULT 'HTML',
+                inline_buttons TEXT
             )
         """)
+        # ترقية: إضافة عمود inline_buttons إن لم يكن موجوداً
+        try:
+            c.execute("ALTER TABLE button_responses ADD COLUMN inline_buttons TEXT")
+        except Exception:
+            pass
 
         c.execute("""
             CREATE TABLE IF NOT EXISTS users (
@@ -294,12 +300,13 @@ def reorder_buttons(button_id: int, direction: str) -> bool:
 def set_response(button_id: int, response_type: str, text_content: Optional[str] = None,
                  file_id: Optional[str] = None, file_type: Optional[str] = None,
                  url: Optional[str] = None, caption: Optional[str] = None,
-                 redirect_to: Optional[int] = None, parse_mode: str = "HTML") -> None:
+                 redirect_to: Optional[int] = None, parse_mode: str = "HTML",
+                 inline_buttons: Optional[str] = None) -> None:
     with _conn() as c:
         c.execute("""
             INSERT INTO button_responses
-                (button_id,response_type,text_content,file_id,file_type,url,caption,redirect_to,parse_mode)
-            VALUES (?,?,?,?,?,?,?,?,?)
+                (button_id,response_type,text_content,file_id,file_type,url,caption,redirect_to,parse_mode,inline_buttons)
+            VALUES (?,?,?,?,?,?,?,?,?,?)
             ON CONFLICT(button_id) DO UPDATE SET
                 response_type=excluded.response_type,
                 text_content=excluded.text_content,
@@ -308,9 +315,10 @@ def set_response(button_id: int, response_type: str, text_content: Optional[str]
                 url=excluded.url,
                 caption=excluded.caption,
                 redirect_to=excluded.redirect_to,
-                parse_mode=excluded.parse_mode
+                parse_mode=excluded.parse_mode,
+                inline_buttons=excluded.inline_buttons
         """, (button_id, response_type, text_content, file_id,
-              file_type, url, caption, redirect_to, parse_mode))
+              file_type, url, caption, redirect_to, parse_mode, inline_buttons))
         c.commit()
 
 

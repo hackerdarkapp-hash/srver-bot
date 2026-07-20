@@ -150,6 +150,21 @@ async def _execute_button(cb: CallbackQuery, btn_id: int, btn: dict) -> None:
             pass
 
 
+def _parse_inline_buttons(raw: str | None) -> InlineKeyboardMarkup | None:
+    """تحويل JSON المخزّن إلى reply_markup."""
+    if not raw:
+        return None
+    import json
+    try:
+        items = json.loads(raw)
+        if not items:
+            return None
+        rows = [[InlineKeyboardButton(text=b["text"], url=b["url"])] for b in items if b.get("url")]
+        return InlineKeyboardMarkup(inline_keyboard=rows) if rows else None
+    except Exception:
+        return None
+
+
 async def _send_response(message: Message, resp: dict, chat_type: str = "private") -> None:
     rtype   = resp["response_type"]
     text    = resp.get("text_content") or ""
@@ -157,40 +172,38 @@ async def _send_response(message: Message, resp: dict, chat_type: str = "private
     caption = resp.get("caption") or ""
     url     = resp.get("url") or ""
     pm      = resp.get("parse_mode") or "HTML"
+    kb      = _parse_inline_buttons(resp.get("inline_buttons"))
 
     try:
         if rtype == "text":
-            await message.answer(text, parse_mode=pm)
+            await message.answer(text, reply_markup=kb, parse_mode=pm)
         elif rtype == "photo":
             src = file_id or url
             if src:
-                await message.answer_photo(src, caption=caption or text, parse_mode=pm)
+                await message.answer_photo(src, caption=caption or text,
+                                           reply_markup=kb, parse_mode=pm)
         elif rtype == "video" and file_id:
-            await message.answer_video(file_id, caption=caption or text, parse_mode=pm)
+            await message.answer_video(file_id, caption=caption or text,
+                                       reply_markup=kb, parse_mode=pm)
         elif rtype == "file" and file_id:
-            await message.answer_document(file_id, caption=caption or text, parse_mode=pm)
+            await message.answer_document(file_id, caption=caption or text,
+                                          reply_markup=kb, parse_mode=pm)
         elif rtype == "audio" and file_id:
-            await message.answer_audio(file_id, caption=caption or text, parse_mode=pm)
-        elif rtype == "url_link" and url:
-            kb = InlineKeyboardMarkup(inline_keyboard=[[
-                InlineKeyboardButton(text="🔗 فتح الرابط", url=url)
-            ]])
-            await message.answer(text or "اضغط لفتح الرابط:", reply_markup=kb, parse_mode=pm)
-        elif rtype == "tg_link" and url:
-            kb = InlineKeyboardMarkup(inline_keyboard=[[
-                InlineKeyboardButton(text="📨 فتح في تلجرام", url=url)
-            ]])
-            await message.answer(text or "اضغط لفتح الرابط:", reply_markup=kb, parse_mode=pm)
+            await message.answer_audio(file_id, caption=caption or text,
+                                       reply_markup=kb, parse_mode=pm)
+        elif rtype in ("url_link", "tg_link"):
+            # يُفتح مباشرةً من زر الكيبورد — لا رسالة وسيطة
+            pass
         elif rtype == "webapp" and url:
             if chat_type == "private":
-                kb = InlineKeyboardMarkup(inline_keyboard=[[
+                webapp_kb = InlineKeyboardMarkup(inline_keyboard=[[
                     InlineKeyboardButton(text="🌐 فتح التطبيق", web_app=WebAppInfo(url=url))
                 ]])
             else:
-                kb = InlineKeyboardMarkup(inline_keyboard=[[
+                webapp_kb = InlineKeyboardMarkup(inline_keyboard=[[
                     InlineKeyboardButton(text="🌐 فتح التطبيق", url=url)
                 ]])
-            await message.answer(text or "اضغط لفتح التطبيق:", reply_markup=kb, parse_mode=pm)
+            await message.answer(text or "اضغط لفتح التطبيق:", reply_markup=webapp_kb, parse_mode=pm)
         elif rtype == "redirect":
             redir = resp.get("redirect_to")
             if redir:

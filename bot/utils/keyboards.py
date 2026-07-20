@@ -18,12 +18,17 @@ def _btn_row(btn: dict, chat_type: str = "private") -> list[InlineKeyboardButton
     if tool_id:
         return [InlineKeyboardButton(text=btn["label"], callback_data=f"tool:{tool_id}")]
     resp = db.get_response(btn["id"])
-    if resp and resp["response_type"] == "webapp" and resp.get("url"):
-        url = resp["url"]
-        if chat_type == "private":
-            return [InlineKeyboardButton(text=btn["label"], web_app=WebAppInfo(url=url))]
-        else:
+    if resp:
+        rtype = resp.get("response_type")
+        url   = resp.get("url") or ""
+        if rtype in ("url_link", "tg_link") and url:
+            # يفتح الرابط مباشرةً بدون رسالة وسيطة
             return [InlineKeyboardButton(text=btn["label"], url=url)]
+        if rtype == "webapp" and url:
+            if chat_type == "private":
+                return [InlineKeyboardButton(text=btn["label"], web_app=WebAppInfo(url=url))]
+            else:
+                return [InlineKeyboardButton(text=btn["label"], url=url)]
     return [InlineKeyboardButton(text=btn["label"], callback_data=f"nav:{btn['id']}")]
 
 

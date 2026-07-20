@@ -51,8 +51,15 @@ def reorder_buttons(*args, **kwargs):
     return result
 
 
-def set_response(*args, **kwargs):
-    _set_response(*args, **kwargs)
+def set_response(button_id, response_type, text_content=None, file_id=None,
+                 file_type=None, url=None, caption=None, redirect_to=None,
+                 parse_mode="HTML", inline_buttons=None):
+    _set_response(
+        button_id=button_id, response_type=response_type,
+        text_content=text_content, file_id=file_id, file_type=file_type,
+        url=url, caption=caption, redirect_to=redirect_to,
+        parse_mode=parse_mode, inline_buttons=inline_buttons,
+    )
     schedule_backup()
 
 

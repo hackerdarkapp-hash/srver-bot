@@ -2,6 +2,7 @@
 handlers/admin/button_wizard.py — معالج إضافة/تعديل الأزرار المخصصة
 """
 
+import json
 import logging
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
@@ -41,12 +42,13 @@ def _cancel_kb() -> InlineKeyboardMarkup:
 
 
 class AddBtn(StatesGroup):
-    TYPE       = State()
-    PARENT     = State()
-    LABEL      = State()
-    SECTION    = State()
-    RESP_TYPE  = State()
-    RESP_VALUE = State()
+    TYPE        = State()
+    PARENT      = State()
+    LABEL       = State()
+    SECTION     = State()
+    RESP_TYPE   = State()
+    RESP_VALUE  = State()
+    INLINE_BTNS = State()   # أزرار أسفل المحتوى (اختياري)
 
 
 @router.callback_query(F.data == "ap:add")
@@ -215,6 +217,25 @@ async def add_resp_value(message: Message, state: FSMContext) -> None:
     data  = await state.get_data()
     rtype = data.get("resp_type")
 
+    # أنواع الروابط تُحفظ مباشرةً بدون أزرار إضافية
+    if rtype in ("url_link", "tg_link"):
+        url = (message.text or "").strip()
+        if not url.startswith("http"):
+            await message.answer("⚠️ الرابط يجب أن يبدأ بـ http:// أو https://")
+            return
+        await state.update_data(url=url)
+        await _save_button(message, state)
+        return
+    elif rtype == "webapp":
+        url = (message.text or "").strip()
+        if not url.startswith("https://"):
+            await message.answer("⚠️ الرابط يجب أن يبدأ بـ https://")
+            return
+        await state.update_data(url=url)
+        await _save_button(message, state)
+        return
+
+    # نص / صورة / فيديو / ملف / صوت — استقبال المحتوى ثم نسأل عن الأزرار
     if rtype == "text":
         await state.update_data(text_content=message.text)
     elif rtype in ("photo", "video", "file", "audio"):
@@ -229,25 +250,83 @@ async def add_resp_value(message: Message, state: FSMContext) -> None:
             file_id = message.audio.file_id
         elif message.text and message.text.startswith("http"):
             await state.update_data(url=message.text.strip())
-            await _save_button(message, state)
+            await _ask_inline_buttons(message, state)
             return
         if not file_id:
             await message.answer(f"⚠️ يرجى إرسال {rtype} صحيح.")
             return
         await state.update_data(file_id=file_id, file_type=rtype)
-    elif rtype in ("url_link", "tg_link"):
-        url = (message.text or "").strip()
-        if not url.startswith("http"):
-            await message.answer("⚠️ الرابط يجب أن يبدأ بـ http:// أو https://")
-            return
-        await state.update_data(url=url)
-    elif rtype == "webapp":
-        url = (message.text or "").strip()
-        if not url.startswith("https://"):
-            await message.answer("⚠️ الرابط يجب أن يبدأ بـ https://")
-            return
-        await state.update_data(url=url)
 
+    await _ask_inline_buttons(message, state)
+
+
+async def _ask_inline_buttons(message: Message, state: FSMContext) -> None:
+    """اسأل الأدمن إذا أراد إضافة أزرار URL أسفل المحتوى."""
+    await state.set_state(AddBtn.INLINE_BTNS)
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="✅ نعم، أضف أزراراً", callback_data="bw:ib:yes"),
+            InlineKeyboardButton(text="⏭ تخطي",              callback_data="bw:ib:skip"),
+        ]
+    ])
+    await message.answer(
+        "🔘 <b>هل تريد إضافة أزرار أسفل المحتوى؟</b>\n\n"
+        "<i>مثل أزرار الماركداون التي تفتح روابط مباشرةً</i>",
+        reply_markup=kb, parse_mode="HTML",
+    )
+
+
+@router.callback_query(AddBtn.INLINE_BTNS, F.data == "bw:ib:skip")
+async def cb_inline_skip(cb: CallbackQuery, state: FSMContext) -> None:
+    if not is_admin(cb.from_user.id):
+        await cb.answer("🚫", show_alert=True)
+        return
+    await cb.answer()
+    await _save_button(cb.message, state, edit=True)
+
+
+@router.callback_query(AddBtn.INLINE_BTNS, F.data == "bw:ib:yes")
+async def cb_inline_yes(cb: CallbackQuery, state: FSMContext) -> None:
+    if not is_admin(cb.from_user.id):
+        await cb.answer("🚫", show_alert=True)
+        return
+    await cb.answer()
+    await cb.message.edit_text(
+        "🔘 <b>أرسل الأزرار — كل زر في سطر بالشكل:</b>\n\n"
+        "<code>اسم الزر | https://الرابط</code>\n\n"
+        "<b>مثال:</b>\n"
+        "<code>زيارة موقعنا | https://example.com\n"
+        "تواصل معنا | https://t.me/username</code>",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="❌ إلغاء", callback_data="ap:panel")]
+        ]),
+        parse_mode="HTML",
+    )
+
+
+@router.message(AddBtn.INLINE_BTNS)
+async def add_inline_buttons(message: Message, state: FSMContext) -> None:
+    if not is_admin(message.from_user.id):
+        return
+    buttons = []
+    for line in (message.text or "").strip().splitlines():
+        if "|" not in line:
+            continue
+        parts = line.split("|", 1)
+        text  = parts[0].strip()
+        url   = parts[1].strip()
+        if text and url.startswith("http"):
+            buttons.append({"text": text, "url": url})
+
+    if not buttons:
+        await message.answer(
+            "⚠️ لم يُتعرَّف على أي زر صحيح.\n"
+            "تأكد من الشكل: <code>اسم الزر | https://الرابط</code>",
+            parse_mode="HTML",
+        )
+        return
+
+    await state.update_data(inline_buttons=json.dumps(buttons, ensure_ascii=False))
     await _save_button(message, state)
 
 
@@ -268,11 +347,14 @@ async def _save_button(msg, state: FSMContext, edit: bool = False) -> None:
     if btn_type == "int":
         section = "free"
 
+    inline_buttons = data.get("inline_buttons")
+
     btn_id = db.add_button(label=label, section=section, parent_id=parent_id)
     db.set_response(
         button_id=btn_id, response_type=resp_type,
         text_content=text_cont, file_id=file_id,
         file_type=file_type, url=url,
+        inline_buttons=inline_buttons,
     )
 
     from utils.keyboards import admin_panel_keyboard
