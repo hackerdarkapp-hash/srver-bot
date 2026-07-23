@@ -3,13 +3,14 @@ handlers/user/navigation.py — تنقل المستخدم بين الأزرار
 """
 
 import json
+import io
 import logging
 from typing import Optional
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import (
-    CallbackQuery, Message,
+    BufferedInputFile, CallbackQuery, Message,
     InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo,
 )
 
@@ -18,6 +19,78 @@ from utils.keyboards import build_start_keyboard, build_children_keyboard
 
 logger = logging.getLogger(__name__)
 router = Router()
+
+
+def _media_filename(resp: dict) -> str:
+    extension = {
+        "photo": "jpg",
+        "video": "mp4",
+        "file": "bin",
+        "audio": "mp3",
+    }.get(resp.get("file_type") or resp.get("response_type"), "bin")
+    return f"button-media.{extension}"
+
+
+async def _download_media(bot, file_id: str, resp: dict) -> BufferedInputFile:
+    """نزّل الوسيط من بوت يملك file_id وأعده كملف قابل لإعادة الرفع."""
+    file_info = await bot.get_file(file_id)
+    buffer = io.BytesIO()
+    await bot.download_file(file_info.file_path, destination=buffer)
+    return BufferedInputFile(buffer.getvalue(), filename=_media_filename(resp))
+
+
+async def _send_media(
+    message: Message,
+    resp: dict,
+    file_id: str,
+    caption: str,
+    kb: Optional[InlineKeyboardMarkup],
+    parse_mode: str,
+) -> None:
+    """أرسل الوسيط عبر البوت الحالي، مع fallback من البوت الرئيسي."""
+    from utils.bot_registry import get_all_bots, get_primary_bot
+
+    current_bot = getattr(message, "bot", None)
+    candidates = []
+    for candidate in [current_bot, get_primary_bot(), *get_all_bots()]:
+        if candidate and candidate not in candidates:
+            candidates.append(candidate)
+
+    last_error = None
+    for source_bot in candidates:
+        try:
+            media = (
+                file_id
+                if source_bot is current_bot
+                else await _download_media(source_bot, file_id, resp)
+            )
+            rtype = resp["response_type"]
+            if rtype == "photo":
+                await message.answer_photo(
+                    media, caption=caption, reply_markup=kb, parse_mode=parse_mode
+                )
+            elif rtype == "video":
+                await message.answer_video(
+                    media, caption=caption, reply_markup=kb, parse_mode=parse_mode
+                )
+            elif rtype == "file":
+                await message.answer_document(
+                    media, caption=caption, reply_markup=kb, parse_mode=parse_mode
+                )
+            elif rtype == "audio":
+                await message.answer_audio(
+                    media, caption=caption, reply_markup=kb, parse_mode=parse_mode
+                )
+            return
+        except Exception as exc:
+            last_error = exc
+            logger.warning(
+                "تعذر إرسال وسيط الزر عبر %s: %s",
+                getattr(source_bot, "id", "unknown"),
+                exc,
+            )
+
+    raise last_error or RuntimeError("لا يوجد بوت متاح لإرسال الوسيط")
 
 
 def _chat_type(cb: CallbackQuery) -> str:
@@ -160,16 +233,15 @@ async def _send_response(
     try:
         if rtype == "text":
             await message.answer(text, reply_markup=kb, parse_mode=pm)
-        elif rtype == "photo":
-            src = file_id or url
-            if src:
-                await message.answer_photo(src, caption=caption or text, reply_markup=kb, parse_mode=pm)
-        elif rtype == "video" and file_id:
-            await message.answer_video(file_id, caption=caption or text, reply_markup=kb, parse_mode=pm)
-        elif rtype == "file" and file_id:
-            await message.answer_document(file_id, caption=caption or text, reply_markup=kb, parse_mode=pm)
-        elif rtype == "audio" and file_id:
-            await message.answer_audio(file_id, caption=caption or text, reply_markup=kb, parse_mode=pm)
+        elif rtype in ("photo", "video", "file", "audio"):
+            if rtype == "photo" and not file_id and url:
+                await message.answer_photo(
+                    url, caption=caption or text, reply_markup=kb, parse_mode=pm
+                )
+            elif file_id:
+                await _send_media(
+                    message, resp, file_id, caption or text, kb, pm
+                )
         elif rtype in ("url_link", "tg_link"):
             pass
         elif rtype == "webapp" and url:

@@ -399,7 +399,21 @@ async def main() -> None:
         logger.info("✅ [%s] تم إنشاؤه | token=...%s", bot_label, token[-6:])
 
     for bot, bot_label in bots:
-        await set_commands(bot, bot_label)
+        # أمر الإدارة يظهر في البوت رقم ١ فقط؛ بقية البوتات للمستخدمين.
+        if bot_label == "bot_1":
+            await set_commands(bot, bot_label)
+        else:
+            try:
+                await bot.set_my_commands(
+                    [BotCommand(command="start", description="▶️ بدء البوت")],
+                    scope=BotCommandScopeDefault(),
+                )
+                if ADMIN_ID:
+                    await bot.delete_my_commands(
+                        scope=BotCommandScopeChat(chat_id=ADMIN_ID),
+                    )
+            except Exception as e:
+                logger.warning("[%s] تعذّر ضبط أوامر المستخدمين: %s", bot_label, e)
 
     port = int(os.environ.get("PORT", 8080))
 

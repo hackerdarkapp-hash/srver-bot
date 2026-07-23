@@ -13,6 +13,7 @@ from aiogram import BaseMiddleware
 from aiogram.types import Message, CallbackQuery, TelegramObject
 
 from config import ADMIN_ID, RATE_LIMIT_SECONDS, MAX_MSG_PER_MINUTE
+from utils.bot_registry import is_primary_bot
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +73,19 @@ class AntiSpamMiddleware(BaseMiddleware):
             # عدّاد السرعة مشترك بين البوتات، لذلك سيمنع الأدمن عرضيًا
             # إذا لم نستثنه هنا.
             if uid == ADMIN_ID:
+                # البوت رقم ١ هو البوت الرئيسي للإدارة. منع أحداث الأدمن
+                # من البوتات الأخرى يمنع تداخل حالات FSM ولوحة الإدارة.
+                current_bot = data.get("bot") or getattr(event, "bot", None)
+                if not is_primary_bot(current_bot):
+                    if isinstance(event, CallbackQuery):
+                        try:
+                            await event.answer(
+                                "⚠️ استخدم البوت الرئيسي لإدارة الأزرار.",
+                                show_alert=True,
+                            )
+                        except Exception:
+                            pass
+                    return
                 return await handler(event, data)
 
             # فحص الحظر عبر DB بأمان منفصل
