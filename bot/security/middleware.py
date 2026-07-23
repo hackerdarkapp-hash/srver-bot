@@ -12,7 +12,7 @@ from typing import Any, Awaitable, Callable
 from aiogram import BaseMiddleware
 from aiogram.types import Message, CallbackQuery, TelegramObject
 
-from config import RATE_LIMIT_SECONDS, MAX_MSG_PER_MINUTE
+from config import ADMIN_ID, RATE_LIMIT_SECONDS, MAX_MSG_PER_MINUTE
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +50,13 @@ class AntiSpamMiddleware(BaseMiddleware):
             uid = event.from_user.id if event.from_user else None
 
         if uid:
+            # حساب الأدمن يجب أن يبقى قادرًا على إدارة كل البوتات حتى لو
+            # سُجّل سابقًا كمحظور أو أرسل أوامر متتابعة عبر عدة بوتات.
+            # عدّاد السرعة مشترك بين البوتات، لذلك سيمنع الأدمن عرضيًا
+            # إذا لم نستثنه هنا.
+            if uid == ADMIN_ID:
+                return await handler(event, data)
+
             # فحص الحظر عبر DB بأمان منفصل
             try:
                 import database as db

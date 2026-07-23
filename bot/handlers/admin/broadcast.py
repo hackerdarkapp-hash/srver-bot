@@ -46,6 +46,12 @@ class Broadcast(StatesGroup):
     WAITING = State()
 
 
+class AdminReply(StatesGroup):
+    """حالة مؤقتة تستقبل رسالة الأدمن بعد اختيار مستخدم للرد عليه."""
+
+    WAITING = State()
+
+
 @router.callback_query(F.data == "ap:broadcast")
 async def cb_broadcast_start(cb: CallbackQuery, state: FSMContext) -> None:
     if not is_admin(cb.from_user.id):
@@ -141,13 +147,14 @@ async def bc_confirm(cb: CallbackQuery, state: FSMContext, bot: Bot) -> None:
     )
 
 
-@router.callback_query(F.data.startswith("reply:"))
+@router.callback_query(F.data.startswith("reply:") | F.data.startswith("sreply:"))
 async def cb_reply_start(cb: CallbackQuery, state: FSMContext) -> None:
     if not is_admin(cb.from_user.id):
         await cb.answer("🚫", show_alert=True)
         return
     target_uid = int(cb.data.split(":")[1])
     await state.update_data(reply_target=target_uid)
+    await state.set_state(AdminReply.WAITING)
     await cb.answer()
     await cb.message.reply(
         f"✏️ أرسل ردك على المستخدم <code>{target_uid}</code>:",
@@ -156,9 +163,12 @@ async def cb_reply_start(cb: CallbackQuery, state: FSMContext) -> None:
     )
 
 
-# ✅ مهم: فقط الأدمن — لا يبلع رسائل المستخدمين العاديين
-@router.message(lambda m: m.from_user and m.from_user.id == ADMIN_ID)
+# لا يستقبل هذا المعالج إلا رسالة الرد بعد اختيار مستخدم فعليًا.
+# استخدام معالج عام للأدمن هنا كان يبتلع /start و /admin وبقية الرسائل.
+@router.message(AdminReply.WAITING)
 async def admin_fwd_reply(message: Message, state: FSMContext, bot: Bot) -> None:
+    if not message.from_user or not is_admin(message.from_user.id):
+        return
     data = await state.get_data()
     target = data.get("reply_target")
     if not target:

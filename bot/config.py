@@ -6,8 +6,23 @@ from dotenv import load_dotenv
 # في Render/Cloud يُتجاهل إذا لم يوجد الملف
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), ".env"), override=False)
 
-BOT_TOKEN      = os.getenv("TELEGRAM_BOT_TOKEN", os.getenv("BOT_TOKEN", ""))
-ADMIN_ID       = int(os.getenv("ADMIN_TELEGRAM_ID", os.getenv("ADMIN_ID", "0")))
+BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", os.getenv("BOT_TOKEN", "")).strip()
+
+
+def _read_admin_id() -> int:
+    """اقرأ معرّف الأدمن بدون إسقاط البوت إذا كان الإعداد غير صالح."""
+    raw_id = os.getenv("ADMIN_TELEGRAM_ID", os.getenv("ADMIN_ID", "")).strip()
+    if not raw_id:
+        return 0
+    try:
+        admin_id = int(raw_id)
+    except ValueError:
+        # قيمة غير رقمية لا يمكن استخدامها مع Telegram API.
+        return 0
+    return admin_id if admin_id > 0 else 0
+
+
+ADMIN_ID = _read_admin_id()
 SESSION_SECRET = os.getenv("SESSION_SECRET", "tg-bot-secret")
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "data", "buttons.db")
