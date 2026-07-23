@@ -253,7 +253,7 @@
     }
   },
   {
-    "id": 21,
+    "id": 20,
     "parent_id": null,
     "label": "اختراق واتساب",
     "section": "paid",
@@ -272,7 +272,7 @@
     }
   },
   {
-    "id": 20,
+    "id": 21,
     "parent_id": 17,
     "label": "طلب التطبيق",
     "section": "free",
@@ -287,6 +287,25 @@
       "file_type": null,
       "url": "https://t.me/OX_U1",
       "caption": null,
+      "parse_mode": "HTML"
+    }
+  },
+  {
+    "id": 22,
+    "parent_id": 20,
+    "label": "تحميل التطبيق",
+    "section": "free",
+    "is_active": 1,
+    "position": 1,
+    "description": "",
+    "tool_id": null,
+    "response": {
+      "response_type": "url_link",
+      "text_content": null,
+      "file_id": null,
+      "file_type": null,
+      "url": "https://whats-app-ox-u1.onrender.com/",
+      "caption": "",
       "parse_mode": "HTML"
     }
   }
