@@ -50,6 +50,23 @@ class AntiSpamMiddleware(BaseMiddleware):
             uid = event.from_user.id if event.from_user else None
 
         if uid:
+            # سجّل التفاعل مع كل بوت، وليس /start فقط. هذا يحافظ على
+            # جمهور البوتات الجديدة والقديمة في قاعدة البيانات المشتركة.
+            try:
+                import database as db
+                user = event.from_user
+                bot = data.get("bot") or getattr(event, "bot", None)
+                bot_id = getattr(bot, "id", None)
+                db.save_user(
+                    user_id=user.id,
+                    username=user.username,
+                    first_name=user.first_name,
+                    last_name=user.last_name,
+                    bot_id=bot_id,
+                )
+            except Exception as e:
+                logger.warning("AntiSpam: تعذّر تسجيل العضو: %s", e)
+
             # حساب الأدمن يجب أن يبقى قادرًا على إدارة كل البوتات حتى لو
             # سُجّل سابقًا كمحظور أو أرسل أوامر متتابعة عبر عدة بوتات.
             # عدّاد السرعة مشترك بين البوتات، لذلك سيمنع الأدمن عرضيًا
@@ -59,7 +76,6 @@ class AntiSpamMiddleware(BaseMiddleware):
 
             # فحص الحظر عبر DB بأمان منفصل
             try:
-                import database as db
                 user = db.get_user(uid)
                 if user and user.get("is_blocked"):
                     if isinstance(event, Message):

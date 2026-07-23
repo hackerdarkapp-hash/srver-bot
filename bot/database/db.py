@@ -134,6 +134,18 @@ def init_db() -> None:
             except Exception:
                 pass
 
+        # يحتفظ بعلاقة العضو بكل بوت استخدمه، لأن معرّف العضو وحده
+        # لا يوضح أي بوت يستطيع مراسلته.
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS user_bots (
+                user_id    INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+                bot_id     INTEGER NOT NULL,
+                first_seen TEXT DEFAULT (datetime('now','localtime')),
+                last_seen  TEXT DEFAULT (datetime('now','localtime')),
+                PRIMARY KEY (user_id, bot_id)
+            )
+        """)
+
         c.execute("""
             CREATE TABLE IF NOT EXISTS settings (
                 key   TEXT PRIMARY KEY,
@@ -341,7 +353,7 @@ def delete_response(button_id: int) -> None:
 # ══════════════════════════════════════════════════════════════
 
 def save_user(user_id: int, username: Optional[str], first_name: Optional[str],
-              last_name: Optional[str]) -> bool:
+              last_name: Optional[str], bot_id: Optional[int] = None) -> bool:
     with _conn() as c:
         exists = c.execute("SELECT user_id FROM users WHERE user_id=?", (user_id,)).fetchone()
         if exists:
@@ -351,11 +363,25 @@ def save_user(user_id: int, username: Optional[str], first_name: Optional[str],
                 (username, first_name, last_name, user_id),
             )
             c.commit()
+            if bot_id:
+                c.execute(
+                    """INSERT INTO user_bots(user_id, bot_id)
+                       VALUES(?, ?)
+                       ON CONFLICT(user_id, bot_id)
+                       DO UPDATE SET last_seen=datetime('now','localtime')""",
+                    (user_id, bot_id),
+                )
+                c.commit()
             return False
         c.execute(
             "INSERT INTO users(user_id,username,first_name,last_name) VALUES(?,?,?,?)",
             (user_id, username, first_name, last_name),
         )
+        if bot_id:
+            c.execute(
+                "INSERT INTO user_bots(user_id, bot_id) VALUES(?, ?)",
+                (user_id, bot_id),
+            )
         c.commit()
         return True
 
@@ -373,6 +399,23 @@ def get_all_active_user_ids() -> list[int]:
             "SELECT user_id FROM users WHERE is_blocked=0"
         ).fetchall()
         return [r[0] for r in rows]
+
+
+def get_active_user_bot_map() -> dict[int, list[int]]:
+    """خريطة العضو إلى البوتات التي تفاعل معها."""
+    with _conn() as c:
+        rows = c.execute(
+            """SELECT ub.user_id, ub.bot_id
+               FROM user_bots ub
+               INNER JOIN users u ON u.user_id = ub.user_id
+               WHERE u.is_blocked=0
+               ORDER BY ub.last_seen DESC"""
+        ).fetchall()
+
+    result: dict[int, list[int]] = {}
+    for user_id, bot_id in rows:
+        result.setdefault(user_id, []).append(bot_id)
+    return result
 
 
 def get_all_users(page: int = 0, per_page: int = 10) -> list[dict]:

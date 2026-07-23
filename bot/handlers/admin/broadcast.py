@@ -4,6 +4,7 @@ handlers/admin/broadcast.py
 """
 
 import asyncio
+import io
 import logging
 
 from aiogram import Bot, F, Router
@@ -11,16 +12,131 @@ from aiogram.exceptions import TelegramForbiddenError, TelegramBadRequest
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import (
-    CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message,
+    BufferedInputFile, CallbackQuery, InlineKeyboardButton,
+    InlineKeyboardMarkup, Message,
 )
 
 import database as db
 from config import ADMIN_ID
+from utils.keyboards import admin_panel_keyboard
 
 logger = logging.getLogger(__name__)
 router = Router()
 
 DELAY = 0.05
+
+
+def _build_broadcast_payload(message: Message, source_bot: Bot) -> dict | None:
+    """حوّل الرسالة إلى حمولة يمكن لأي بوت إرسالها، لا نسخها من بوت آخر."""
+    source_bot_id = getattr(source_bot, "id", None)
+    if message.text:
+        return {"type": "text", "text": message.text}
+    if message.photo:
+        return {
+            "type": "photo",
+            "file_id": message.photo[-1].file_id,
+            "caption": message.caption,
+            "source_bot_id": source_bot_id,
+        }
+    if message.video:
+        return {
+            "type": "video",
+            "file_id": message.video.file_id,
+            "caption": message.caption,
+            "source_bot_id": source_bot_id,
+        }
+    if message.animation:
+        return {
+            "type": "animation",
+            "file_id": message.animation.file_id,
+            "caption": message.caption,
+            "source_bot_id": source_bot_id,
+        }
+    if message.document:
+        return {
+            "type": "document",
+            "file_id": message.document.file_id,
+            "caption": message.caption,
+            "source_bot_id": source_bot_id,
+        }
+    if message.audio:
+        return {
+            "type": "audio",
+            "file_id": message.audio.file_id,
+            "caption": message.caption,
+            "source_bot_id": source_bot_id,
+        }
+    if message.voice:
+        return {
+            "type": "voice",
+            "file_id": message.voice.file_id,
+            "caption": message.caption,
+            "source_bot_id": source_bot_id,
+        }
+    if message.video_note:
+        return {
+            "type": "video_note",
+            "file_id": message.video_note.file_id,
+            "source_bot_id": source_bot_id,
+        }
+    if message.sticker:
+        return {
+            "type": "sticker",
+            "file_id": message.sticker.file_id,
+            "source_bot_id": source_bot_id,
+        }
+    return None
+
+
+async def _load_media_bytes(bot: Bot, payload: dict) -> bytes:
+    """نزّل الوسيط مرة واحدة من البوت المصدر قبل توزيعه."""
+    file_info = await bot.get_file(payload["file_id"])
+    buffer = io.BytesIO()
+    await bot.download_file(file_info.file_path, destination=buffer)
+    return buffer.getvalue()
+
+
+async def _send_broadcast_payload(bot: Bot, chat_id: int, payload: dict) -> None:
+    """أرسل المحتوى باستخدام البوت الذي يستطيع الوصول إلى العضو."""
+    kind = payload["type"]
+    media = payload.get("media_bytes")
+    extension = {
+        "photo": "jpg",
+        "video": "mp4",
+        "animation": "mp4",
+        "document": "bin",
+        "audio": "mp3",
+        "voice": "ogg",
+        "video_note": "mp4",
+        "sticker": "webp",
+    }.get(kind, "bin")
+    file_id = (
+        BufferedInputFile(media, filename=f"broadcast-media.{extension}")
+        if media is not None
+        else payload.get("file_id")
+    )
+    caption = payload.get("caption")
+
+    if kind == "text":
+        await bot.send_message(chat_id=chat_id, text=payload["text"])
+    elif kind == "photo":
+        await bot.send_photo(chat_id=chat_id, photo=file_id, caption=caption)
+    elif kind == "video":
+        await bot.send_video(chat_id=chat_id, video=file_id, caption=caption)
+    elif kind == "animation":
+        await bot.send_animation(chat_id=chat_id, animation=file_id, caption=caption)
+    elif kind == "document":
+        await bot.send_document(chat_id=chat_id, document=file_id, caption=caption)
+    elif kind == "audio":
+        await bot.send_audio(chat_id=chat_id, audio=file_id, caption=caption)
+    elif kind == "voice":
+        await bot.send_voice(chat_id=chat_id, voice=file_id, caption=caption)
+    elif kind == "video_note":
+        await bot.send_video_note(chat_id=chat_id, video_note=file_id)
+    elif kind == "sticker":
+        await bot.send_sticker(chat_id=chat_id, sticker=file_id)
+    else:
+        raise ValueError(f"نوع رسالة غير مدعوم: {kind}")
 
 
 def is_admin(uid: int) -> bool:
@@ -74,10 +190,14 @@ async def cb_broadcast_start(cb: CallbackQuery, state: FSMContext) -> None:
 
 
 @router.message(Broadcast.WAITING)
-async def bc_receive_msg(message: Message, state: FSMContext) -> None:
+async def bc_receive_msg(message: Message, state: FSMContext, bot: Bot) -> None:
     if not is_admin(message.from_user.id):
         return
-    await state.update_data(msg_id=message.message_id, chat_id=message.chat.id)
+    payload = _build_broadcast_payload(message, bot)
+    if not payload:
+        await message.answer("⚠️ نوع الرسالة هذا غير مدعوم للإرسال الجماعي.")
+        return
+    await state.update_data(payload=payload)
     total = len(db.get_all_active_user_ids())
     from utils.bot_registry import get_all_bots
     bots_count = len(get_all_bots())
@@ -97,9 +217,8 @@ async def bc_confirm(cb: CallbackQuery, state: FSMContext, bot: Bot) -> None:
         return
     data = await state.get_data()
     await state.clear()
-    src_chat = data.get("chat_id")
-    src_msg  = data.get("msg_id")
-    if not src_msg:
+    payload = data.get("payload")
+    if not payload:
         await cb.answer("⚠️ لم يتم العثور على الرسالة.", show_alert=True)
         return
     await cb.answer("⏳ جارٍ الإرسال...")
@@ -109,38 +228,55 @@ async def bc_confirm(cb: CallbackQuery, state: FSMContext, bot: Bot) -> None:
     )
     from utils.bot_registry import get_all_bots
     all_bots = get_all_bots() or [bot]
+    bots_by_id = {getattr(current_bot, "id", None): current_bot for current_bot in all_bots}
+    source_bot = bots_by_id.get(payload.get("source_bot_id")) or bot
+    if payload.get("file_id") and payload.get("media_bytes") is None:
+        try:
+            payload["media_bytes"] = await _load_media_bytes(source_bot, payload)
+        except Exception as e:
+            logger.error("تعذر تحميل وسيط الإرسال الجماعي: %s", e)
+            await status_msg.edit_text(
+                "❌ تعذر تجهيز الملف للإرسال. أعد المحاولة.",
+                reply_markup=admin_panel_keyboard(),
+                parse_mode="HTML",
+            )
+            return
+    user_bot_map = db.get_active_user_bot_map()
     user_ids  = db.get_all_active_user_ids()
     sent      = 0
-    failed    = 0
     delivered = set()
-    for current_bot in all_bots:
-        remaining = [uid for uid in user_ids if uid not in delivered]
-        if not remaining:
-            break
-        for uid in remaining:
+    for uid in user_ids:
+        preferred = [
+            bots_by_id[bot_id]
+            for bot_id in user_bot_map.get(uid, [])
+            if bot_id in bots_by_id
+        ]
+        fallback = [current_bot for current_bot in all_bots if current_bot not in preferred]
+        candidates = preferred + fallback
+        for current_bot in candidates:
             try:
-                await current_bot.copy_message(
-                    chat_id=uid,
-                    from_chat_id=src_chat,
-                    message_id=src_msg,
-                )
+                await _send_broadcast_payload(current_bot, uid, payload)
                 delivered.add(uid)
                 sent += 1
+                break
             except TelegramForbiddenError:
+                # العضو حظر هذا البوت؛ جرّب البوت الذي تفاعل معه بعده.
                 pass
             except TelegramBadRequest:
-                delivered.add(uid)
-                failed += 1
+                # قد يعني أن العضو لم يبدأ هذا البوت؛ جرّب البقية.
+                pass
             except Exception as e:
-                logger.warning("broadcast uid=%s bot=...%s: %s", uid, current_bot.token[-6:], e)
+                logger.warning(
+                    "broadcast uid=%s bot=...%s: %s",
+                    uid, current_bot.token[-6:], e,
+                )
             await asyncio.sleep(DELAY)
-    blocked = len(user_ids) - len(delivered)
-    from utils.keyboards import admin_panel_keyboard
+
+    failed = len(user_ids) - len(delivered)
     await status_msg.edit_text(
         f"✅ <b>اكتمل الإرسال الجماعي</b>\n\n"
         f"📤 أُرسل:    <b>{sent}</b>\n"
-        f"🚫 محجوب:   <b>{blocked}</b>\n"
-        f"❌ فشل:     <b>{failed}</b>\n"
+        f"⚠️ لم يصل:   <b>{failed}</b>\n"
         f"🤖 البوتات: <b>{len(all_bots)}</b>",
         reply_markup=admin_panel_keyboard(),
         parse_mode="HTML",
